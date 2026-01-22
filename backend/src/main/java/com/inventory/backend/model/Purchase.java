@@ -29,6 +29,13 @@ public class Purchase {
     private Double totalAmount;
     private String status; // e.g., "PENDING", "COMPLETED"
 
+// Inside your Purchase class
+private Double unitPrice;  // Price per single item (e.g., 2500.0)
+private Integer quantity;  // Number of items bought (e.g., 10)
+
+// The totalAmount will now be unitPrice * quantity
+
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

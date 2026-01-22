@@ -1,12 +1,12 @@
 package com.inventory.backend.controller;
 
 import com.inventory.backend.model.Purchase;
-import com.inventory.backend.model.Product; // Add this
+import com.inventory.backend.model.Product;
 import com.inventory.backend.repository.PurchaseRepository;
-import com.inventory.backend.repository.ProductRepository; // Add this
+import com.inventory.backend.repository.ProductRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.transaction.annotation.Transactional; // Add this
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -19,7 +19,7 @@ public class PurchaseController {
     private PurchaseRepository purchaseRepository;
 
     @Autowired
-    private ProductRepository productRepository; // Step 1: Link the Product Repository
+    private ProductRepository productRepository;
 
     @GetMapping
     public List<Purchase> getAllPurchases() {
@@ -27,21 +27,26 @@ public class PurchaseController {
     }
 
     @PostMapping
-    @Transactional // Step 2: Ensure both actions happen together or not at all
-    public Purchase createPurchase(@RequestBody Purchase purchase, @RequestParam Long productId, @RequestParam Integer quantityBought) {
+    @Transactional
+    public Purchase createPurchase(@RequestBody Purchase purchase, @RequestParam Long productId) {
         
-        // Step 3: Find the product we are restocking
+        // 1. Find the product we are restocking
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found with ID: " + productId));
 
-        // Step 4: Logic to increase the stock
-        int updatedQuantity = product.getQuantity() + quantityBought;
+        // 2. Automated Financial Math
+        // We multiply the unitPrice by the quantity provided in the JSON
+        Double total = purchase.getUnitPrice() * purchase.getQuantity();
+        purchase.setTotalAmount(total);
+
+        // 3. Update the stock quantity in the Product table
+        int updatedQuantity = product.getQuantity() + purchase.getQuantity();
         product.setQuantity(updatedQuantity);
 
-        // Step 5: Save the updated product back to the database
+        // 4. Save the updated product
         productRepository.save(product);
 
-        // Step 6: Save the purchase record
+        // 5. Save the detailed purchase record (with unitPrice and quantity)
         return purchaseRepository.save(purchase);
     }
 }
