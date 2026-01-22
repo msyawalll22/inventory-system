@@ -16,6 +16,7 @@ public class AuthController {
     @PostMapping("/register")
     public String registerUser(@RequestBody User user) {
         try {
+            // If the JSON includes "role": {"id": 1}, JPA will automatically link it
             userRepository.save(user);
             return "User registered successfully!";
         } catch (Exception e) {
@@ -23,15 +24,14 @@ public class AuthController {
         }
     }
 
-    // NEW: Login endpoint
     @PostMapping("/login")
     public String loginUser(@RequestBody User user) {
-        // 1. Check if user exists in database
         User existingUser = userRepository.findByUsername(user.getUsername());
 
-        // 2. Validate password
         if (existingUser != null && existingUser.getPassword().equals(user.getPassword())) {
-            return "Login successful! Welcome " + existingUser.getUsername();
+            // We can now even return what their role is in the welcome message
+            String roleName = (existingUser.getRole() != null) ? existingUser.getRole().getName() : "No Role";
+            return "Login successful! Welcome " + existingUser.getUsername() + " (Role: " + roleName + ")";
         } else {
             return "Invalid username or password";
         }

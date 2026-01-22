@@ -15,5 +15,10 @@ public class User {
     private String username;
 
     private String password;
-    private String role; // e.g., ADMIN or STAFF
+
+    // CHANGED: Instead of a String, we use the Role entity
+    // This creates the role_id (FK) column from your diagram
+    @ManyToOne
+    @JoinColumn(name = "role_id")
+    private Role role; 
 }
