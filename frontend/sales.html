@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sales Ledger | Elite System</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans p-8">
+    <div id="app" class="max-w-6xl mx-auto">
+        <header class="mb-10 flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-black uppercase tracking-tighter italic">Sales <span class="text-blue-500">Report</span></h1>
+                <p class="text-gray-500 text-xs font-bold uppercase tracking-widest mt-1">Total revenue and transaction logs</p>
+            </div>
+            
+            <div class="flex gap-4">
+                <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl min-w-[150px]">
+                    <p class="text-[10px] uppercase font-black text-gray-500">Total Revenue</p>
+                    <p class="text-2xl font-mono font-bold text-green-400">${{ totalRevenue.toFixed(2) }}</p>
+                </div>
+                <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl min-w-[120px]">
+                    <p class="text-[10px] uppercase font-black text-gray-500">Orders</p>
+                    <p class="text-2xl font-mono font-bold">{{ sales.length }}</p>
+                </div>
+                <a href="index.html" class="bg-blue-600 px-6 py-4 rounded-2xl text-[10px] font-black uppercase hover:bg-blue-500 transition-all self-center shadow-lg shadow-blue-900/20">POS</a>
+            </div>
+        </header>
+
+        <div class="bg-gray-800 rounded-3xl border border-gray-700 overflow-hidden shadow-2xl">
+            <table class="w-full text-left">
+                <thead class="bg-gray-900/50 text-gray-500 uppercase text-[10px] font-black tracking-widest">
+                    <tr>
+                        <th class="p-6">Sale ID</th>
+                        <th class="p-6">Amount</th>
+                        <th class="p-6">Status</th>
+                        <th class="p-6 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700/50">
+                    <tr v-if="sales.length === 0">
+                        <td colspan="4" class="p-20 text-center text-gray-600 italic uppercase text-xs tracking-widest">No sales recorded yet</td>
+                    </tr>
+                    <tr v-for="sale in sales" :key="sale.id" class="hover:bg-gray-700/20 transition-colors group">
+                        <td class="p-6">
+                            <span class="font-mono text-blue-400 font-bold">#SAL-{{ sale.id }}</span>
+                        </td>
+                        <td class="p-6">
+                            <div class="text-xl font-mono font-bold">${{ sale.totalAmount.toFixed(2) }}</div>
+                        </td>
+                        <td class="p-6">
+                            <span class="bg-green-500/10 text-green-500 border border-green-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Completed</span>
+                        </td>
+                        <td class="p-6 text-right">
+                            <button class="text-gray-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors">View Details</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        createApp({
+            data() {
+                return { sales: [] }
+            },
+            computed: {
+                totalRevenue() {
+                    return this.sales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+                }
+            },
+            methods: {
+                async fetchSales() {
+                    try {
+                        const res = await fetch('http://localhost:8080/api/sales');
+                        if (!res.ok) throw new Error("Backend not responding");
+                        this.sales = await res.json();
+                    } catch (err) {
+                        console.error("Fetch error:", err);
+                    }
+                }
+            },
+            mounted() { this.fetchSales(); }
+        }).mount('#app')
+    </script>
+</body>
+</html>

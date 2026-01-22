@@ -3,12 +3,14 @@ package com.inventory.backend.controller;
 import com.inventory.backend.model.InventoryTransaction;
 import com.inventory.backend.repository.InventoryTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/transactions")
+// Changed to match your history.html fetch URL
+@RequestMapping("/api/inventory-transactions") 
 @CrossOrigin(origins = "*")
 public class InventoryTransactionController {
 
@@ -17,7 +19,8 @@ public class InventoryTransactionController {
 
     @GetMapping
     public List<InventoryTransaction> getAllTransactions() {
-        return transactionRepository.findAll();
+        // Added sorting so the latest SALE or PURCHASE shows at the TOP of the table
+        return transactionRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 
     @PostMapping
