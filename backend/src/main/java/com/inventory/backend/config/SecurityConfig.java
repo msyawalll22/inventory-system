@@ -21,6 +21,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/categories/**").permitAll()
                 .requestMatchers("/api/suppliers/**").permitAll()
                 .requestMatchers("/api/roles/**").permitAll()
+                .requestMatchers("/api/transactions/**").permitAll()
                 .anyRequest().permitAll() // Temporary: change to .authenticated() later
             );
         
