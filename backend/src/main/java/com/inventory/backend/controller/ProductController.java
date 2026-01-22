@@ -33,16 +33,33 @@ public class ProductController {
         return productRepository.save(product);
     }
 
-    // 4. Update Product (UPDATE)
+    // 4. Update Product Details (Standard UPDATE)
     @PutMapping("/{id}")
     public Product updateProduct(@PathVariable Long id, @RequestBody Product productDetails) {
-        Product product = productRepository.findById(id).orElseThrow();
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
         
         product.setName(productDetails.getName());
         product.setDescription(productDetails.getDescription());
         product.setPrice(productDetails.getPrice());
         product.setQuantity(productDetails.getQuantity());
         
+        return productRepository.save(product);
+    }
+
+    // NEW Logic: Specific endpoint for stock adjustments (Incremental)
+    // This allows you to send +5 to add stock or -3 to reduce stock
+    @PatchMapping("/{id}/stock")
+    public Product adjustStock(@PathVariable Long id, @RequestParam Integer amount) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
+        
+        int newQuantity = product.getQuantity() + amount;
+        if (newQuantity < 0) {
+            throw new RuntimeException("Insufficient stock level!");
+        }
+        
+        product.setQuantity(newQuantity);
         return productRepository.save(product);
     }
 
