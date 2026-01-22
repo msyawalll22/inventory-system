@@ -23,6 +23,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/roles/**").permitAll()
                 .requestMatchers("/api/transactions/**").permitAll()
                 .requestMatchers("/api/purchases/**").permitAll()
+                .requestMatchers("/api/sales/**").permitAll()
                 .anyRequest().permitAll() // Temporary: change to .authenticated() later
             );
         
