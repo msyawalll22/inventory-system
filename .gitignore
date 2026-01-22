@@ -1,0 +1,15 @@
+# Java Spring Boot
+target/
+*.class
+*.jar
+.mvn/
+help.md
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
