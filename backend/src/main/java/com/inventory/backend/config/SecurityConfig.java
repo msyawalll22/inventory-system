@@ -20,6 +20,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/products/**").permitAll()
                 .requestMatchers("/api/categories/**").permitAll()
                 .requestMatchers("/api/suppliers/**").permitAll()
+                .requestMatchers("/api/roles/**").permitAll()
                 .anyRequest().permitAll() // Temporary: change to .authenticated() later
             );
         
