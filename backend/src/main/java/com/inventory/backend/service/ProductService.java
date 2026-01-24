@@ -1,13 +1,13 @@
 package com.inventory.backend.service;
 
 import com.inventory.backend.model.Product;
-import com.inventory.backend.model.InventoryTransaction; // Ensure this exists
+import com.inventory.backend.model.InventoryTransaction;
 import com.inventory.backend.repository.ProductRepository;
-import com.inventory.backend.repository.InventoryTransactionRepository; // You'll need this
+import com.inventory.backend.repository.InventoryTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class ProductService {
@@ -18,9 +18,31 @@ public class ProductService {
     @Autowired
     private InventoryTransactionRepository transactionRepository;
 
+    /**
+     * SMART SAVE / REACTIVATE
+     * If product name exists (even if inactive), it updates and brings it back.
+     * This prevents duplicate names and preserves history.
+     */
+    @Transactional
+    public Product saveOrUpdateProduct(Product incoming) {
+        return productRepository.findByName(incoming.getName())
+            .map(existing -> {
+                existing.setActive(true); // Reactivate if it was soft-deleted
+                existing.setPrice(incoming.getPrice());
+                existing.setPromoPrice(incoming.getPromoPrice());
+                existing.setQuantity(incoming.getQuantity());
+                existing.setImageUrl(incoming.getImageUrl());
+                existing.setDescription(incoming.getDescription());
+                return productRepository.save(existing);
+            })
+            .orElseGet(() -> productRepository.save(incoming));
+    }
+
+    /**
+     * UPDATE STOCK & LOG TRANSACTION
+     */
     @Transactional
     public Product updateStock(Long productId, Integer changeAmount, String type) {
-        // 1. Update the Product Stock
         Product product = productRepository.findById(productId)
             .orElseThrow(() -> new RuntimeException("Product not found"));
 
@@ -32,21 +54,27 @@ public class ProductService {
 
         product.setQuantity(newQuantity);
         Product updatedProduct = productRepository.save(product);
-// 2. CREATE THE TRANSACTION LOG
-InventoryTransaction transaction = new InventoryTransaction();
-transaction.setProduct(updatedProduct);
 
-// Use 'setQuantity' instead of 'setQuantityChange'
-transaction.setQuantity(changeAmount); 
-
-// Use 'setDescription' instead of 'setTransactionType' 
-// Or you can map 'type' to description
-transaction.setDescription(type); 
-
-// Note: Your model has @PrePersist for createdAt, 
-// so you don't even need to set it manually here!
-transactionRepository.save(transaction);
+        InventoryTransaction transaction = new InventoryTransaction();
+        transaction.setProduct(updatedProduct);
+        transaction.setQuantity(changeAmount); 
+        transaction.setDescription(type); 
+        transactionRepository.save(transaction);
 
         return updatedProduct;
+    }
+
+    /**
+     * SOFT DELETE (The Fix for Error #1451)
+     * We do NOT delete the row. We just hide it.
+     * This keeps the Foreign Key relationship happy.
+     */
+    @Transactional
+    public void softDeleteProduct(Long id) {
+        Product product = productRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Product not found"));
+        
+        product.setActive(false); // Flip the switch to hide it from UI
+        productRepository.save(product);
     }
 }

@@ -2,8 +2,9 @@ package com.inventory.backend.controller;
 
 import com.inventory.backend.model.Product;
 import com.inventory.backend.repository.ProductRepository;
-import com.inventory.backend.service.ProductService; // 1. Import Service
+import com.inventory.backend.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,11 +18,12 @@ public class ProductController {
     private ProductRepository productRepository;
 
     @Autowired
-    private ProductService productService; // 2. Inject Service
+    private ProductService productService;
 
+    // 1. FIXED: Now calls the specific query for active products only
     @GetMapping
     public List<Product> getAllProducts() {
-        return productRepository.findAll();
+        return productRepository.findAllByActiveTrue();
     }
 
     @GetMapping("/{id}")
@@ -29,15 +31,13 @@ public class ProductController {
         return productRepository.findById(id).orElse(null);
     }
 
-    // 3. Add New Product (Initial Stock Logged as PURCHASE)
+    // 2. FIXED: Uses the Service's saveOrUpdateProduct to handle reactivations
     @PostMapping
     public Product addProduct(@RequestBody Product product) {
-        // Save the product first to get an ID
-        Product savedProduct = productRepository.save(product);
+        Product savedProduct = productService.saveOrUpdateProduct(product);
         
-        // If the new product has initial stock, log it in history
-        if (savedProduct.getQuantity() > 0) {
-            productService.updateStock(savedProduct.getId(), savedProduct.getQuantity(), "PURCHASE");
+        if (savedProduct.getQuantity() != null && savedProduct.getQuantity() > 0) {
+            productService.updateStock(savedProduct.getId(), savedProduct.getQuantity(), "INITIAL_STOCK");
         }
         
         return savedProduct;
@@ -51,27 +51,30 @@ public class ProductController {
         product.setName(productDetails.getName());
         product.setDescription(productDetails.getDescription());
         product.setPrice(productDetails.getPrice());
-        
-        // Note: We usually don't update quantity via PutMapping 
-        // if we want accurate transaction logs; we use adjustStock instead.
+        product.setPromoPrice(productDetails.getPromoPrice());
+        product.setImageUrl(productDetails.getImageUrl());
         product.setQuantity(productDetails.getQuantity());
+        
+        // When updating, we ensure the product is set to active 
+        product.setActive(true);
         
         return productRepository.save(product);
     }
 
-    // 4. Adjust Stock (Triggers the Transaction Log)
     @PatchMapping("/{id}/stock")
     public Product adjustStock(@PathVariable Long id, @RequestParam Integer amount) {
-        // Determine the type based on the amount
-        String type = (amount > 0) ? "PURCHASE" : "ADJUSTMENT";
-        
-        // Use the service to handle the logic and the history record
+        String type = (amount > 0) ? "RESTOCK" : "ADJUSTMENT";
         return productService.updateStock(id, amount, type);
     }
 
+    // 3. FIXED: Calls softDeleteProduct to avoid Foreign Key errors
     @DeleteMapping("/{id}")
-    public String deleteProduct(@PathVariable Long id) {
-        productRepository.deleteById(id);
-        return "Product deleted successfully";
+    public ResponseEntity<String> deleteProduct(@PathVariable Long id) {
+        try {
+            productService.softDeleteProduct(id);
+            return ResponseEntity.ok("Product archived successfully. History preserved.");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
     }
 }

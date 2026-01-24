@@ -3,8 +3,9 @@ package com.inventory.backend.controller;
 import com.inventory.backend.model.Purchase;
 import com.inventory.backend.model.Product;
 import com.inventory.backend.repository.PurchaseRepository;
-import com.inventory.backend.repository.ProductRepository;
+import com.inventory.backend.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,34 +20,54 @@ public class PurchaseController {
     private PurchaseRepository purchaseRepository;
 
     @Autowired
-    private ProductRepository productRepository;
+    private ProductService productService;
 
     @GetMapping
     public List<Purchase> getAllPurchases() {
         return purchaseRepository.findAll();
     }
 
+    // FIX 1: The "New Product" Door (Solves your 404)
+    @PostMapping("/new-product")
+    @Transactional
+    public ResponseEntity<?> createPurchaseWithNewProduct(@RequestBody Purchase purchase) {
+        try {
+            // Save or reactivate the product first
+            Product savedProduct = productService.saveOrUpdateProduct(purchase.getProduct());
+            purchase.setProduct(savedProduct);
+            
+            return processPurchase(purchase);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    // FIX 2: The "Existing Product" Door
     @PostMapping
     @Transactional
-    public Purchase createPurchase(@RequestBody Purchase purchase, @RequestParam Long productId) {
-        
-        // 1. Find the product we are restocking
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found with ID: " + productId));
+    public ResponseEntity<?> createPurchase(@RequestBody Purchase purchase) {
+        try {
+            return processPurchase(purchase);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
 
-        // 2. Automated Financial Math
-        // We multiply the unitPrice by the quantity provided in the JSON
-        Double total = purchase.getUnitPrice() * purchase.getQuantity();
-        purchase.setTotalAmount(total);
+    // Helper to keep logic clean and shared
+    private ResponseEntity<Purchase> processPurchase(Purchase purchase) {
+        // 1. Calculate Total
+        if (purchase.getUnitPrice() != null && purchase.getQuantity() != null) {
+            purchase.setTotalAmount(purchase.getUnitPrice() * purchase.getQuantity());
+        }
 
-        // 3. Update the stock quantity in the Product table
-        int updatedQuantity = product.getQuantity() + purchase.getQuantity();
-        product.setQuantity(updatedQuantity);
+        // 2. Update Stock & Log Transaction
+        productService.updateStock(
+            purchase.getProduct().getId(), 
+            purchase.getQuantity(), 
+            "PURCHASE: " + (purchase.getSupplier() != null ? purchase.getSupplier().getName() : "Restock")
+        );
 
-        // 4. Save the updated product
-        productRepository.save(product);
-
-        // 5. Save the detailed purchase record (with unitPrice and quantity)
-        return purchaseRepository.save(purchase);
+        // 3. Save Record
+        return ResponseEntity.ok(purchaseRepository.save(purchase));
     }
 }

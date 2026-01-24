@@ -16,6 +16,7 @@ public class Supplier {
     private String email;
     private String phone;
     private String address;
+    private String category;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

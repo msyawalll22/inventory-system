@@ -22,9 +22,11 @@ public class Sale {
     @JoinColumn(name = "user_id")
     private User user; // The staff who made the sale
 
-    private Double totalAmount;
-    private String customerName;
+    private Double totalAmount;;
     private String status; // e.g., "PAID", "CANCELLED"
+    private Long productId;
+private Integer quantity;
+private String paymentMethod; // e.g., "CASH", "CARD"
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
