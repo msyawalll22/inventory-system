@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import apiRequest from '../../utils/api.js';
+import SuccessAlert from '../../components/SuccessAlert';
 
 const Users = () => {
   const [users, setUsers] = useState([]);
   const [formData, setFormData] = useState({ username: '', password: '', role: 'STAFF' });
   const [loading, setLoading] = useState(false);
   
-  // Custom UI State
-  const [notification, setNotification] = useState({ show: false, message: '', type: '' });
+  // Updated Alert State to match Inventory system
+  const [alertConfig, setAlertConfig] = useState({ 
+    show: false, 
+    title: '', 
+    message: '', 
+    type: 'success' 
+  });
+  
   const [confirmModal, setConfirmModal] = useState({ show: false, userId: null, username: '' });
 
   const fetchUsers = async () => {
@@ -26,11 +33,6 @@ const Users = () => {
     fetchUsers();
   }, []);
 
-  const notify = (message, type = 'success') => {
-    setNotification({ show: true, message, type });
-    setTimeout(() => setNotification({ show: false, message: '', type: '' }), 4000);
-  };
-
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -44,14 +46,29 @@ const Users = () => {
       const result = await response.text();
 
       if (response.ok) {
-        notify("User account provisioned successfully", "success");
         setFormData({ username: '', password: '', role: 'STAFF' });
         fetchUsers();
+        setAlertConfig({
+          show: true,
+          type: 'success',
+          title: "PROVISIONED",
+          message: `User account for @${formData.username} has been created.`
+        });
       } else {
-        notify(result || "Registration failed", "error");
+        setAlertConfig({
+          show: true,
+          type: 'error',
+          title: "REGISTRATION FAILED",
+          message: result || "The system could not create this account."
+        });
       }
     } catch (err) {
-      notify("Network authentication failure", "error");
+      setAlertConfig({
+        show: true,
+        type: 'error',
+        title: "AUTH ERROR",
+        message: "Network authentication failure. Please check your connection."
+      });
     } finally {
       setLoading(false);
     }
@@ -62,36 +79,50 @@ const Users = () => {
   };
 
   const executeRevoke = async () => {
-    const { userId } = confirmModal;
+    const { userId, username } = confirmModal;
     setConfirmModal({ show: false, userId: null, username: '' });
 
     try {
       const response = await apiRequest(`/auth/users/${userId}`, { method: 'DELETE' });
       if (response.ok) {
-        notify("Access privileges revoked", "success");
         fetchUsers();
+        setAlertConfig({
+          show: true,
+          type: 'success',
+          title: "REVOKED",
+          message: `Access privileges for @${username} have been terminated.`
+        });
       } else {
-        notify("Failed to revoke access", "error");
+        setAlertConfig({
+          show: true,
+          type: 'error',
+          title: "REVOCATION FAILED",
+          message: "Could not remove user. They may have active system logs."
+        });
       }
     } catch (err) {
-      notify("System error during revocation", "error");
+      setAlertConfig({
+        show: true,
+        type: 'error',
+        title: "SYSTEM ERROR",
+        message: "An error occurred during the revocation process."
+      });
     }
   };
 
   return (
     <div className="relative min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
       
-      {/* NOTIFICATION TOAST */}
-      {notification.show && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] flex items-center px-6 py-3 rounded-2xl shadow-2xl transition-all duration-500 animate-in fade-in slide-in-from-top-4
-          ${notification.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white'}`}>
-          <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-             {notification.message}
-          </span>
-        </div>
-      )}
+      {/* INTEGRATED ANIMATED ALERT */}
+      <SuccessAlert 
+        show={alertConfig.show}
+        type={alertConfig.type}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        onConfirm={() => setAlertConfig({ ...alertConfig, show: false })}
+      />
 
-      {/* CONFIRMATION POPUP (MIDDLE BOX) */}
+      {/* CONFIRMATION POPUP */}
       {confirmModal.show && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all animate-in zoom-in-95 duration-300">
@@ -101,9 +132,9 @@ const Users = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-slate-800">Revoke Access?</h3>
-              <p className="text-sm text-slate-500 mt-2 px-4">
-                You are about to permanently disable access for <span className="font-bold text-slate-900">@{confirmModal.username}</span>. This action is logged.
+              <h3 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Revoke Access?</h3>
+              <p className="text-sm text-slate-500 mt-2 px-4 leading-relaxed font-medium">
+                Permanently disable access for <span className="font-bold text-slate-900">@{confirmModal.username}</span>.
               </p>
             </div>
             
@@ -116,9 +147,9 @@ const Users = () => {
               </button>
               <button 
                 onClick={executeRevoke}
-                className="flex-1 px-4 py-3 text-[10px] font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-200"
+                className="flex-1 px-4 py-3 text-[10px] font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 uppercase"
               >
-                REVOKE NOW
+                Revoke Now
               </button>
             </div>
           </div>
@@ -126,10 +157,9 @@ const Users = () => {
       )}
 
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <header className="mb-10 pb-8 border-b border-slate-200">
           <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
-            Access <span className="text-indigo-600">Control</span>
+            Access <span className="text-indigo-600 italic">Control</span>
           </h1>
           <p className="text-sm text-slate-500 mt-1 font-medium">Manage administrative privileges and staff credentials.</p>
         </header>
@@ -138,7 +168,7 @@ const Users = () => {
           
           {/* REGISTRATION PANEL */}
           <div className="lg:col-span-4">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sticky top-8">
               <div className="bg-slate-50/50 px-6 py-4 border-b border-slate-200">
                 <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Provision New Account</h2>
               </div>
@@ -246,15 +276,12 @@ const Users = () => {
               
               {users.length === 0 && (
                 <div className="py-24 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-slate-50 rounded-full mb-4">
-                     <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </div>
                   <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">Zero secondary accounts found</p>
                 </div>
               )}
             </div>
             
-            <div className="mt-6 flex items-center justify-between px-2">
+            <div className="mt-6 px-2">
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic flex items-center gap-2">
                 <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
                 Security protocol: Admin users have write-access to core database.

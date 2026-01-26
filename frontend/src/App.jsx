@@ -8,16 +8,27 @@ import Transactions from './assets/pages/Transactions.jsx';
 import Pos from './assets/pages/Pos.jsx'; 
 import Suppliers from './assets/pages/Supplier.jsx';
 import Auth from './assets/pages/Auth.jsx';
-import Users from './assets/pages/Users.jsx'; // 1. IMPORT THE NEW PAGE
+import Users from './assets/pages/Users.jsx';
 
 function App() {
-  const [currentView, setCurrentView] = useState('inventory');
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   
+  // Load user from localStorage
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  // FIX: Determine initial view based on role instead of hardcoded 'inventory'
+  const [currentView, setCurrentView] = useState(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      // Logic: Admin -> dashboard, Staff -> pos
+      return parsedUser.role === 'ADMIN' ? 'dashboard' : 'pos';
+    }
+    return 'inventory'; // Fallback
   });
 
   const fetchInventory = async () => {
@@ -38,7 +49,7 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('user');
-    localStorage.removeItem('token'); // Clear token too!
+    localStorage.removeItem('token');
     setUser(null);
   };
 
@@ -51,17 +62,22 @@ function App() {
       case 'suppliers': return <Suppliers />;
       case 'purchases': return <Purchases products={inventory} refreshData={fetchInventory} />;
       case 'sales': return <Sales products={inventory} refreshData={fetchInventory} />;
-      
-      // 2. ADD USERS VIEW (With Security Check)
       case 'users': 
         return user.role === 'ADMIN' ? <Users /> : <Inventory inventory={inventory} />;
-        
-      default: return <Inventory inventory={inventory} refreshData={fetchInventory} />;
+      default: 
+        // Default landing after login if something goes wrong
+        return user.role === 'ADMIN' ? 
+          <Dashboard inventory={inventory} refreshData={fetchInventory} /> : 
+          <Pos products={inventory} refreshData={fetchInventory} />;
     }
   };
 
   if (!user) {
-    return <Auth onLoginSuccess={(userData) => setUser(userData)} />;
+    return <Auth onLoginSuccess={(userData) => {
+      setUser(userData);
+      // Also update view immediately upon login
+      setCurrentView(userData.role === 'ADMIN' ? 'dashboard' : 'pos');
+    }} />;
   }
 
   return (
@@ -75,7 +91,7 @@ function App() {
       />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="px-8 pt-8 flex justify-between items-center">
+        <div className="px-8 pt-8 flex justify-between items-center no-print">
            <span className="text-xs font-bold uppercase tracking-wider text-indigo-500">
              System / {currentView}
            </span>
