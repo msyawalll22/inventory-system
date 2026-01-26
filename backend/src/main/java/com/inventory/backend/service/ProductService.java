@@ -2,12 +2,13 @@ package com.inventory.backend.service;
 
 import com.inventory.backend.model.Product;
 import com.inventory.backend.model.InventoryTransaction;
+import com.inventory.backend.model.User;
 import com.inventory.backend.repository.ProductRepository;
 import com.inventory.backend.repository.InventoryTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
+import java.time.LocalDateTime;
 
 @Service
 public class ProductService {
@@ -20,16 +21,14 @@ public class ProductService {
 
     /**
      * SMART SAVE / REACTIVATE
-     * If product name exists (even if inactive), it updates and brings it back.
-     * This prevents duplicate names and preserves history.
+     * Updates existing products or saves new ones.
      */
     @Transactional
     public Product saveOrUpdateProduct(Product incoming) {
         return productRepository.findByName(incoming.getName())
             .map(existing -> {
-                existing.setActive(true); // Reactivate if it was soft-deleted
+                existing.setActive(true);
                 existing.setPrice(incoming.getPrice());
-                existing.setPromoPrice(incoming.getPromoPrice());
                 existing.setQuantity(incoming.getQuantity());
                 existing.setImageUrl(incoming.getImageUrl());
                 existing.setDescription(incoming.getDescription());
@@ -39,10 +38,21 @@ public class ProductService {
     }
 
     /**
-     * UPDATE STOCK & LOG TRANSACTION
+     * OLD VERSION (Overloaded)
+     * Keeps ProductController and SaleController working by redirecting to the main method
+     * with null for the new reference and user fields.
      */
     @Transactional
     public Product updateStock(Long productId, Integer changeAmount, String type) {
+        return updateStock(productId, changeAmount, type, null, null);
+    }
+
+    /**
+     * MAIN VERSION (Overloaded)
+     * Used by PurchaseController to handle Reference and User data for the transaction log.
+     */
+    @Transactional
+    public Product updateStock(Long productId, Integer changeAmount, String type, String reference, User user) {
         Product product = productRepository.findById(productId)
             .orElseThrow(() -> new RuntimeException("Product not found"));
 
@@ -55,26 +65,30 @@ public class ProductService {
         product.setQuantity(newQuantity);
         Product updatedProduct = productRepository.save(product);
 
+        // --- Log to inventory_transactions table ---
         InventoryTransaction transaction = new InventoryTransaction();
-        transaction.setProduct(updatedProduct);
+        transaction.setProduct(updatedProduct); // Maps to item_id in DB
         transaction.setQuantity(changeAmount); 
         transaction.setDescription(type); 
+        transaction.setReference(reference);    // The manual reference from UI
+        transaction.setUser(user);              // The logged-in user link
+        transaction.setCreatedAt(LocalDateTime.now()); 
+        
         transactionRepository.save(transaction);
 
         return updatedProduct;
     }
 
     /**
-     * SOFT DELETE (The Fix for Error #1451)
-     * We do NOT delete the row. We just hide it.
-     * This keeps the Foreign Key relationship happy.
+     * SOFT DELETE
+     * Hides product from UI without breaking transaction history.
      */
     @Transactional
     public void softDeleteProduct(Long id) {
         Product product = productRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Product not found"));
         
-        product.setActive(false); // Flip the switch to hide it from UI
+        product.setActive(false);
         productRepository.save(product);
     }
 }

@@ -14,11 +14,9 @@ public class User {
     @Column(unique = true, nullable = false)
     private String username;
 
+    @Column(nullable = false)
     private String password;
 
-    // CHANGED: Instead of a String, we use the Role entity
-    // This creates the role_id (FK) column from your diagram
-    @ManyToOne
-    @JoinColumn(name = "role_id")
-    private Role role; 
+    // Simplified: No more Role table, just a plain string
+    private String role; 
 }

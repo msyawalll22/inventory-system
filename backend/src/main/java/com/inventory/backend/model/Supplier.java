@@ -18,11 +18,17 @@ public class Supplier {
     private String address;
     private String category;
 
+    // 1. ADD THIS: The Soft Delete Flag
+    @Column(nullable = false)
+    private boolean active = true;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        // Ensure new suppliers start as active
+        this.active = true;
     }
 }

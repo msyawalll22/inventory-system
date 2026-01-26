@@ -2,14 +2,15 @@ package com.inventory.backend.controller;
 
 import com.inventory.backend.model.Sale;
 import com.inventory.backend.model.Product;
+import com.inventory.backend.model.User;
 import com.inventory.backend.repository.SaleRepository;
 import com.inventory.backend.repository.ProductRepository;
+import com.inventory.backend.repository.UserRepository;
 import com.inventory.backend.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -24,36 +25,60 @@ public class SaleController {
     private ProductRepository productRepository;
 
     @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
     private ProductService productService;
 
     @GetMapping
     public List<Sale> getAllSales() { 
-        // Returns the history for the Admin
         return saleRepository.findAll(); 
     }
 
-  @PostMapping
-@Transactional
-public Sale createSale(
-    @RequestBody Sale sale, 
-    @RequestParam Long productId, 
-    @RequestParam Integer quantitySold, // This is the name from the request URL
-    @RequestParam String paymentMethod
-) {
-    Product product = productRepository.findById(productId)
-            .orElseThrow(() -> new RuntimeException("Product not found"));
+    @PostMapping
+    @Transactional
+    public Sale createSale(
+        @RequestBody Sale sale, 
+        @RequestParam Long productId, 
+        @RequestParam Integer quantitySold, 
+        @RequestParam String paymentMethod,
+        @RequestParam Long userId 
+    ) {
+        // 1. Validate Product and User exist
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Product not found"));
 
-    // FIX: Match the variable name in Sale.java
-    sale.setProductId(productId);
-    sale.setQuantity(quantitySold); 
-    sale.setPaymentMethod(paymentMethod);
-    sale.setStatus("COMPLETED");
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
-    Double autoTotal = product.getPrice() * quantitySold;
-    sale.setTotalAmount(autoTotal);
+        // 2. Set Sale Details
+        sale.setUser(user);
+        sale.setProductId(productId);
+        sale.setQuantity(quantitySold); 
+        sale.setPaymentMethod(paymentMethod);
+        sale.setStatus("COMPLETED");
 
-    productService.updateStock(productId, -quantitySold, "SALE");
+        // Calculate total based on current product price
+        Double autoTotal = product.getPrice() * quantitySold;
+        sale.setTotalAmount(autoTotal);
 
-    return saleRepository.save(sale);
-}
+        // 3. SAVE SALE FIRST (To generate the ID for the reference)
+        Sale savedSale = saleRepository.save(sale);
+
+        // 4. Generate Invoice Reference using the new Sale ID
+        // String.format("%05d", id) turns 61 into 00061
+        String invoiceRef = "SLS-" + String.format("%05d", savedSale.getId());
+
+        // 5. UPDATE STOCK & LOG TRANSACTION
+        // We pass ALL 5 arguments to ensure 'reference' and 'user_id' are NOT NULL
+        productService.updateStock(
+            productId, 
+            -quantitySold, 
+            "SALE", 
+            invoiceRef, 
+            user
+        );
+
+        return savedSale;
+    }
 }

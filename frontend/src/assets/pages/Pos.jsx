@@ -1,15 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const Pos = ({ products, refreshData }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState([]); 
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [loading, setLoading] = useState(false);
+  
+  // ADJUSTED: Changed 'name' to 'username' to match your DB table
+  const [currentUser, setCurrentUser] = useState({ id: null, username: 'Loading...' });
 
-  // Filter products based on search
+  // Load user from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        const parsedUser = JSON.parse(savedUser);
+        console.log("POS Session Data:", parsedUser); // Check your console F12 to see this
+        
+        setCurrentUser({
+          id: parsedUser.id || parsedUser.userId,
+          // Fallback logic: check for 'username', then 'name', then default to 'Staff'
+          username: parsedUser.username || parsedUser.name || 'Staff'
+        });
+      }
+    } catch (err) {
+      console.error("User session error:", err);
+    }
+  }, []);
+
+  // Format: SLS - [Item] - [Method] - [ID]
+  const generateComplexInvoiceId = (dbId, cartItems, method) => {
+    const modelTag = cartItems.length > 0 
+      ? cartItems[0].name.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8)
+      : 'ITEM';
+    const methodTag = method === 'CASH' ? 'CSH' : 'CRD';
+    const orderNum = String(dbId || Math.floor(Math.random() * 1000)).padStart(3, '0');
+    return `SLS-${modelTag}-${methodTag}-${orderNum}`;
+  };
+
   const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    p.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const addToCart = (product) => {
@@ -20,14 +50,12 @@ const Pos = ({ products, refreshData }) => {
           item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
         ));
       } else {
-        alert("Cannot add more! Out of stock.");
+        alert("STOCK LIMIT REACHED");
       }
     } else {
       setCart([...cart, { ...product, quantity: 1, stock: product.quantity }]);
     }
   };
-
-  const removeFromCart = (id) => setCart(cart.filter(item => item.id !== id));
 
   const updateCartQty = (id, delta) => {
     setCart(cart.map(item => {
@@ -40,18 +68,29 @@ const Pos = ({ products, refreshData }) => {
   };
 
   const totalAmount = cart.reduce((sum, item) => {
-      // Use promoPrice if available, otherwise use regular price
       const activePrice = item.promoPrice || item.price;
       return sum + (activePrice * item.quantity);
   }, 0);
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+    if (!currentUser.id) {
+        alert("⚠️ SESSION EXPIRED: Please log in again.");
+        return;
+    }
     setLoading(true);
 
     try {
-      const promises = cart.map(item => {
-        const url = `http://localhost:8080/api/sales?productId=${item.id}&quantitySold=${item.quantity}&paymentMethod=${paymentMethod}`;
+      const salesPromises = cart.map(item => {
+        const queryParams = new URLSearchParams({
+          productId: item.id,
+          quantitySold: item.quantity,
+          paymentMethod: paymentMethod,
+          userId: currentUser.id // Sending the numeric ID (5, 8, etc.)
+        });
+
+        const url = `http://localhost:8080/api/sales?${queryParams.toString()}`;
+        
         return fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -59,70 +98,83 @@ const Pos = ({ products, refreshData }) => {
         });
       });
 
-      await Promise.all(promises);
-      await refreshData();
-      alert("Checkout successful!");
-      setCart([]);
+      const responses = await Promise.all(salesPromises);
+      const allSuccessful = responses.every(res => res.ok);
+
+      if (allSuccessful) {
+        const firstResult = await responses[0].json();
+        const customInvoice = generateComplexInvoiceId(firstResult.id, cart, paymentMethod);
+        
+        await refreshData();
+        alert(`✅ TRANSACTION SUCCESSFUL\n\nInvoice: ${customInvoice}\nCashier: ${currentUser.username}\nTotal: RM ${totalAmount.toFixed(2)}`);
+        setCart([]);
+      } else {
+        const errorText = await responses[0].text();
+        throw new Error(errorText || "Server rejected request");
+      }
     } catch (err) {
       console.error("Checkout failed:", err);
+      alert("⚠️ CHECKOUT FAILED: User ID not found in database.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto h-[90vh] flex flex-col gap-6">
+    <div className="p-6 md:p-10 max-w-[1800px] mx-auto h-screen flex flex-col gap-8 bg-slate-50 font-sans text-slate-900">
+      
       {/* HEADER */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-        <h1 className="text-2xl font-black text-slate-800">Point of Sale</h1>
-        <div className="relative w-1/3">
+      <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-slate-200 pb-6 bg-white p-6 rounded-xl shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-lg shadow-indigo-200">
+            {/* ADJUSTED: Changed name to username */}
+            {currentUser?.username ? currentUser.username.substring(0, 2).toUpperCase() : '??'}
+          </div>
+          <div>
+            <h1 className="text-xl font-bold uppercase tracking-tight italic">Terminal <span className="text-indigo-600">POS</span></h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+               {/* ADJUSTED: Changed name to username */}
+               User: <span className="text-slate-900">{currentUser?.username || 'Guest'}</span> • ID: {currentUser?.id || '--'}
+            </p>
+          </div>
+        </div>
+        <div className="relative w-full md:w-1/2 lg:w-1/3">
           <input 
             type="text" 
             placeholder="Search items..." 
-            className="w-full p-3 pl-10 bg-slate-50 rounded-2xl outline-none border border-transparent focus:border-indigo-500"
+            className="w-full py-3 px-5 pl-12 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-sm transition-all"
+            value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
           <span className="absolute left-4 top-3.5 opacity-30">🔍</span>
         </div>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-12 gap-6 flex-1 overflow-hidden">
+      <div className="grid grid-cols-12 gap-8 flex-1 overflow-hidden">
+        
         {/* PRODUCT GRID */}
-        <div className="col-span-8 overflow-y-auto pr-2">
-          <div className="grid grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="col-span-12 lg:col-span-8 overflow-y-auto pr-2 custom-scrollbar">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredProducts.map(p => (
               <button 
                 key={p.id}
                 onClick={() => addToCart(p)}
                 disabled={p.quantity <= 0}
-                className="group bg-white rounded-3xl border-2 border-transparent hover:border-indigo-500 overflow-hidden transition-all shadow-sm flex flex-col h-72 disabled:opacity-50"
+                className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:border-indigo-500 hover:shadow-xl flex flex-col h-[300px] text-left disabled:opacity-40 relative"
               >
-                {/* Image Container */}
-                <div className="h-40 w-full bg-slate-100 relative overflow-hidden">
-                  {p.imageUrl ? (
-                    <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold">NO IMAGE</div>
-                  )}
-                  {p.promoPrice && (
-                    <div className="absolute top-2 right-2 bg-rose-500 text-white text-[10px] font-black px-2 py-1 rounded-lg shadow-lg">SALE</div>
-                  )}
+                {p.promoPrice && (
+                  <span className="absolute top-2 right-2 bg-rose-500 text-white text-[8px] font-bold px-2 py-1 rounded-full z-10">PROMO</span>
+                )}
+                <div className="h-36 w-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-400">
+                  {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" alt={p.name} /> : 'NO IMAGE'}
                 </div>
-
-                {/* Info Container */}
-                <div className="p-4 flex-1 flex flex-col justify-between text-left">
+                <div className="p-4 flex flex-col justify-between flex-1">
+                  <h3 className="font-bold text-slate-800 text-[11px] uppercase line-clamp-2">{p.name}</h3>
                   <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.category || 'Product'}</span>
-                    <h3 className="font-bold text-slate-800 text-sm leading-tight mt-0.5 line-clamp-2">{p.name}</h3>
-                  </div>
-                  <div className="flex justify-between items-end mt-2">
-                    <div className="flex flex-col">
-                      <span className="text-lg font-black text-indigo-600">${(p.promoPrice || p.price).toFixed(2)}</span>
-                      {p.promoPrice && <span className="text-[10px] text-slate-400 line-through">${p.price.toFixed(2)}</span>}
-                    </div>
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${p.quantity < 5 ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>
-                      {p.quantity} PCS
-                    </span>
+                    <p className="text-lg font-mono font-bold text-slate-900">RM {(p.promoPrice || p.price).toFixed(2)}</p>
+                    <p className={`text-[9px] font-black uppercase mt-1 ${p.quantity < 5 ? 'text-rose-500' : 'text-slate-400'}`}>
+                       Stock: {p.quantity}
+                    </p>
                   </div>
                 </div>
               </button>
@@ -130,53 +182,46 @@ const Pos = ({ products, refreshData }) => {
           </div>
         </div>
 
-        {/* CART SIDEBAR */}
-        <div className="col-span-4 bg-white rounded-[40px] border border-slate-200 flex flex-col shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-            <h2 className="font-black text-slate-800 uppercase tracking-tighter">Current Order</h2>
-            <button onClick={() => setCart([])} className="text-xs font-bold text-rose-500 hover:underline">Clear All</button>
+        {/* CART */}
+        <div className="col-span-12 lg:col-span-4 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm overflow-hidden h-full">
+          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <h2 className="font-bold text-slate-800 text-[10px] uppercase tracking-widest">Active Order</h2>
+            <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 hover:underline uppercase">Clear All</button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center opacity-30">
-                <span className="text-4xl mb-2">🛒</span>
-                <p className="font-bold">Cart is empty</p>
-              </div>
+                <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2">
+                   <span className="text-3xl">🛒</span>
+                   <span className="text-[10px] font-bold uppercase tracking-widest">Cart Empty</span>
+                </div>
             ) : cart.map(item => (
-              <div key={item.id} className="flex items-center gap-3">
-                {/* Thumbnail in cart */}
-                <div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden border border-slate-100 flex-shrink-0">
-                    <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
+              <div key={item.id} className="flex items-center gap-4 group">
+                <div className="flex-1">
+                  <p className="font-bold text-slate-800 text-[11px] uppercase truncate">{item.name}</p>
+                  <p className="text-[10px] font-mono font-bold text-indigo-600">RM {(item.promoPrice || item.price).toFixed(2)}</p>
                 </div>
-                
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-slate-800 text-sm truncate">{item.name}</p>
-                  <p className="text-xs font-bold text-indigo-500">${(item.promoPrice || item.price).toFixed(2)}</p>
+                <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg p-1">
+                  <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 flex items-center justify-center font-bold hover:text-rose-500 transition-colors">-</button>
+                  <span className="text-[10px] font-bold w-4 text-center">{item.quantity}</span>
+                  <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center font-bold hover:text-indigo-600 transition-colors">+</button>
                 </div>
-
-                <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl">
-                  <button onClick={() => updateCartQty(item.id, -1)} className="w-7 h-7 flex items-center justify-center bg-white rounded-lg shadow-sm font-bold text-slate-600">-</button>
-                  <span className="font-black text-xs w-4 text-center">{item.quantity}</span>
-                  <button onClick={() => updateCartQty(item.id, 1)} className="w-7 h-7 flex items-center justify-center bg-white rounded-lg shadow-sm font-bold text-slate-600">+</button>
-                </div>
-                <button onClick={() => removeFromCart(item.id)} className="text-slate-300 hover:text-rose-500 ml-2">✕</button>
               </div>
             ))}
           </div>
 
-          <div className="p-8 bg-slate-50 border-t border-slate-100 space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-500 font-bold uppercase text-xs tracking-widest">Total Payable</span>
-              <span className="text-3xl font-black text-slate-900">${totalAmount.toFixed(2)}</span>
+          <div className="p-6 bg-slate-900 text-white">
+            <div className="flex justify-between items-end mb-6">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Payable</span>
+              <span className="text-3xl font-mono font-black text-indigo-400">RM {totalAmount.toFixed(2)}</span>
             </div>
-            
-            <div className="grid grid-cols-2 gap-2">
+
+            <div className="flex gap-2 mb-4">
               {['CASH', 'CARD'].map(m => (
                 <button 
                   key={m}
                   onClick={() => setPaymentMethod(m)}
-                  className={`py-3 rounded-2xl font-black text-xs tracking-widest transition-all ${paymentMethod === m ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-200'}`}
+                  className={`flex-1 py-3 text-[10px] font-bold rounded-lg border transition-all ${paymentMethod === m ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-700 text-slate-500 hover:border-slate-500'}`}
                 >
                   {m}
                 </button>
@@ -186,9 +231,9 @@ const Pos = ({ products, refreshData }) => {
             <button 
               onClick={handleCheckout}
               disabled={loading || cart.length === 0}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-5 rounded-3xl font-black text-xl shadow-xl shadow-indigo-100 transition-all disabled:grayscale disabled:opacity-50"
+              className="w-full bg-indigo-500 text-white py-4 rounded-lg font-black text-[11px] uppercase tracking-widest hover:bg-indigo-400 transition-all disabled:opacity-20 active:scale-95 shadow-lg shadow-indigo-900/20"
             >
-              {loading ? 'PROCESSING...' : 'PROCESS CHECKOUT'}
+              {loading ? 'Processing...' : 'Complete Order'}
             </button>
           </div>
         </div>

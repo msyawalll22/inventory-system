@@ -51,7 +51,6 @@ public class ProductController {
         product.setName(productDetails.getName());
         product.setDescription(productDetails.getDescription());
         product.setPrice(productDetails.getPrice());
-        product.setPromoPrice(productDetails.getPromoPrice());
         product.setImageUrl(productDetails.getImageUrl());
         product.setQuantity(productDetails.getQuantity());
         
