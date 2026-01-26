@@ -2,24 +2,21 @@ import React, { useState, useEffect } from 'react';
 
 const Inventory = ({ inventory, loading, refreshData }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortOrder, setSortOrder] = useState('default'); // 'default', 'high-low', 'low-high'
+  const [sortOrder, setSortOrder] = useState('default');
   const [editingItem, setEditingItem] = useState(null);
-  const [notification, setNotification] = useState(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false); // New state for custom confirm
+  
+  const [notification, setNotification] = useState({ message: null, type: 'success' });
 
   const IT_CATEGORIES = [
-    "Laptops & PCs",
-    "Components (CPU/GPU/RAM)",
-    "Storage (SSD/HDD)",
-    "Networking",
-    "Peripherals (Mouse/KB)",
-    "Monitors",
-    "Cables & Adapters",
-    "Software/Licenses"
+    "Laptops & PCs", "Components (CPU/GPU/RAM)", "Storage (SSD/HDD)",
+    "Networking", "Peripherals (Mouse/KB)", "Monitors",
+    "Cables & Adapters", "Software/Licenses"
   ];
 
   useEffect(() => {
-    if (notification) {
-      const timer = setTimeout(() => setNotification(null), 3000);
+    if (notification.message) {
+      const timer = setTimeout(() => setNotification({ message: null, type: 'success' }), 3000);
       return () => clearTimeout(timer);
     }
   }, [notification]);
@@ -52,40 +49,43 @@ const Inventory = ({ inventory, loading, refreshData }) => {
       if (res.ok) {
         setEditingItem(null);
         refreshData();
-        setNotification("Inventory database updated");
+        setNotification({ message: "Inventory database updated", type: 'success' });
       }
     } catch (err) {
       console.error("Update failed:", err);
+      setNotification({ message: "System Error: Connection Failed", type: 'error' });
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm("CONFIRM DELETION: This action will permanently remove the asset from active records.")) {
-      try {
-        const res = await fetch(`http://localhost:8080/api/products/${id}`, {
-          method: 'DELETE',
-        });
+  const handleDelete = async () => {
+    if (!editingItem) return;
+    
+    try {
+      const res = await fetch(`http://localhost:8080/api/products/${editingItem.id}`, {
+        method: 'DELETE',
+      });
 
-        if (res.ok) {
-          setEditingItem(null);
-          refreshData();
-          setNotification("Asset purged from registry");
-        } else {
-          alert("RESTRICTION: Cannot delete item with active transaction history.");
-        }
-      } catch (err) {
-        console.error("Delete failed:", err);
+      if (res.ok) {
+        setShowConfirmDelete(false);
+        setEditingItem(null);
+        refreshData();
+        setNotification({ message: "Asset purged from registry", type: 'delete' });
+      } else {
+        setShowConfirmDelete(false);
+        setNotification({ message: "RESTRICTION: Active transaction history", type: 'error' });
       }
+    } catch (err) {
+      console.error("Delete failed:", err);
+      setNotification({ message: "System Error: Deletion Failed", type: 'error' });
     }
   };
 
-  // Logic for Filtering by Name and Sorting by Price
   const filteredAndSortedInventory = inventory
     ?.filter(i => i.name?.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => {
       if (sortOrder === 'low-high') return a.price - b.price;
       if (sortOrder === 'high-low') return b.price - a.price;
-      return 0; // default (server order)
+      return 0;
     }) || [];
 
   if (loading) return (
@@ -97,17 +97,30 @@ const Inventory = ({ inventory, loading, refreshData }) => {
 
   return (
     <div className="p-6 md:p-12 bg-slate-50 min-h-screen font-sans text-slate-900">
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        .animate-notification {
+          animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+      `}</style>
+
       <div className="max-w-7xl mx-auto">
         
-        {notification && (
-          <div className="fixed top-6 right-6 z-[150] animate-in slide-in-from-right duration-300">
-            <div className="bg-white border border-slate-200 text-slate-800 px-6 py-3 rounded-lg shadow-xl font-bold text-xs uppercase tracking-wider flex items-center gap-3">
-              <span className="h-2 w-2 rounded-full bg-emerald-500"></span> {notification}
+        {/* Animated Notification Badge */}
+        {notification.message && (
+          <div className="fixed top-6 right-6 z-[150] animate-notification">
+            <div className={`bg-white border ${notification.type === 'delete' || notification.type === 'error' ? 'border-rose-200' : 'border-slate-200'} text-slate-800 px-6 py-4 rounded-xl shadow-2xl font-bold text-xs uppercase tracking-wider flex items-center gap-4`}>
+              <span className={`h-3 w-3 rounded-full animate-pulse ${
+                notification.type === 'delete' || notification.type === 'error' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]'
+              }`}></span> 
+              {notification.message}
             </div>
           </div>
         )}
 
-        {/* Header & Search/Filters */}
         <header className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6 border-b border-slate-200 pb-8">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">Asset <span className="text-indigo-600 italic">Inventory</span></h1>
@@ -115,7 +128,6 @@ const Inventory = ({ inventory, loading, refreshData }) => {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            {/* Search Input */}
             <div className="relative flex-1 md:w-80">
               <input 
                 type="text" 
@@ -127,7 +139,6 @@ const Inventory = ({ inventory, loading, refreshData }) => {
               <span className="absolute left-4 top-3.5 text-slate-300 text-lg">🔍</span>
             </div>
 
-            {/* Sort Dropdown */}
             <select 
               className="px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold text-xs uppercase tracking-wider text-slate-600 appearance-none cursor-pointer min-w-[160px] shadow-sm"
               value={sortOrder}
@@ -140,7 +151,6 @@ const Inventory = ({ inventory, loading, refreshData }) => {
           </div>
         </header>
 
-        {/* Product Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
           {filteredAndSortedInventory.map(p => (
             <div key={p.id} className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:shadow-md flex flex-col h-[380px]">
@@ -169,7 +179,10 @@ const Inventory = ({ inventory, loading, refreshData }) => {
                     </span>
                   </div>
                   <button 
-                    onClick={() => setEditingItem(p)}
+                    onClick={() => {
+                        setEditingItem(p);
+                        setShowConfirmDelete(false);
+                    }}
                     className="h-10 w-10 flex items-center justify-center bg-slate-900 text-white rounded-lg hover:bg-indigo-600 transition-all shadow-sm active:scale-95"
                   >
                     <span className="text-xs">Edit</span>
@@ -187,10 +200,25 @@ const Inventory = ({ inventory, loading, refreshData }) => {
         </div>
       </div>
 
-      {/* Edit Modal (unchanged logic, still RM) */}
       {editingItem && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden relative">
+            
+            {/* Custom confirmation overlay replacing window.confirm */}
+            {showConfirmDelete && (
+                <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-50 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-200">
+                    <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-4">
+                        <span className="text-2xl text-rose-500">⚠️</span>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 uppercase tracking-tight">Confirm Deletion</h3>
+                    <p className="text-xs text-slate-500 mt-2 leading-relaxed uppercase font-medium">This action will permanently remove <br/> <span className="text-slate-900 font-bold">"{editingItem.name}"</span> <br/> from active records.</p>
+                    <div className="flex gap-3 mt-8 w-full">
+                        <button onClick={() => setShowConfirmDelete(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold text-[10px] uppercase tracking-widest rounded-lg hover:bg-slate-200 transition-all">Cancel</button>
+                        <button onClick={handleDelete} className="flex-1 py-3 bg-rose-600 text-white font-bold text-[10px] uppercase tracking-widest rounded-lg shadow-lg shadow-rose-200 hover:bg-rose-700 transition-all">Yes, Purge</button>
+                    </div>
+                </div>
+            )}
+
             <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-tight">Modify System Asset</h2>
               <button type="button" onClick={() => setEditingItem(null)} className="text-slate-400 hover:text-slate-600 text-xl transition-colors">✕</button>
@@ -236,7 +264,7 @@ const Inventory = ({ inventory, loading, refreshData }) => {
                 </div>
 
                 <div className="flex gap-3 pt-4 border-t border-slate-100">
-                  <button type="button" onClick={() => handleDelete(editingItem.id)} className="px-6 py-3 text-rose-500 font-bold text-[10px] uppercase tracking-widest hover:bg-rose-50 rounded-lg transition-all border border-transparent">Purge Asset</button>
+                  <button type="button" onClick={() => setShowConfirmDelete(true)} className="px-6 py-3 text-rose-500 font-bold text-[10px] uppercase tracking-widest hover:bg-rose-50 rounded-lg transition-all border border-transparent">Purge Asset</button>
                   <div className="flex-1 flex gap-3">
                     <button type="button" onClick={() => setEditingItem(null)} className="flex-1 py-3 text-slate-400 font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 rounded-lg border border-slate-100">Dismiss</button>
                     <button type="submit" className="flex-[2] py-3 bg-slate-900 text-white font-bold text-[10px] uppercase tracking-widest rounded-lg shadow-lg hover:bg-indigo-600 transition-all">Commit Changes</button>

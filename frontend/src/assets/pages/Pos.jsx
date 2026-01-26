@@ -5,21 +5,19 @@ const Pos = ({ products, refreshData }) => {
   const [cart, setCart] = useState([]); 
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [loading, setLoading] = useState(false);
-  
-  // ADJUSTED: Changed 'name' to 'username' to match your DB table
   const [currentUser, setCurrentUser] = useState({ id: null, username: 'Loading...' });
 
-  // Load user from localStorage on mount
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [lastTransaction, setLastTransaction] = useState(null);
+  const [uiError, setUiError] = useState('');
+
   useEffect(() => {
     try {
       const savedUser = localStorage.getItem('user');
       if (savedUser) {
         const parsedUser = JSON.parse(savedUser);
-        console.log("POS Session Data:", parsedUser); // Check your console F12 to see this
-        
         setCurrentUser({
           id: parsedUser.id || parsedUser.userId,
-          // Fallback logic: check for 'username', then 'name', then default to 'Staff'
           username: parsedUser.username || parsedUser.name || 'Staff'
         });
       }
@@ -28,14 +26,13 @@ const Pos = ({ products, refreshData }) => {
     }
   }, []);
 
-  // Format: SLS - [Item] - [Method] - [ID]
-  const generateComplexInvoiceId = (dbId, cartItems, method) => {
-    const modelTag = cartItems.length > 0 
-      ? cartItems[0].name.split(' ')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8)
-      : 'ITEM';
+  // UPDATED: Standard Transaction ID Logic (e.g., INV-20231027-CSH-001)
+  const generateComplexInvoiceId = (dbId, method) => {
+    const now = new Date();
+    const datePart = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
     const methodTag = method === 'CASH' ? 'CSH' : 'CRD';
-    const orderNum = String(dbId || Math.floor(Math.random() * 1000)).padStart(3, '0');
-    return `SLS-${modelTag}-${methodTag}-${orderNum}`;
+    const orderNum = String(dbId || Math.floor(Math.random() * 1000)).padStart(4, '0');
+    return `INV-${datePart}-${methodTag}-${orderNum}`;
   };
 
   const filteredProducts = products.filter(p => 
@@ -50,7 +47,8 @@ const Pos = ({ products, refreshData }) => {
           item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
         ));
       } else {
-        alert("STOCK LIMIT REACHED");
+        setUiError("STOCK LIMIT REACHED");
+        setTimeout(() => setUiError(''), 3000);
       }
     } else {
       setCart([...cart, { ...product, quantity: 1, stock: product.quantity }]);
@@ -75,7 +73,7 @@ const Pos = ({ products, refreshData }) => {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!currentUser.id) {
-        alert("⚠️ SESSION EXPIRED: Please log in again.");
+        setUiError("⚠️ SESSION EXPIRED: Please log in again.");
         return;
     }
     setLoading(true);
@@ -86,7 +84,7 @@ const Pos = ({ products, refreshData }) => {
           productId: item.id,
           quantitySold: item.quantity,
           paymentMethod: paymentMethod,
-          userId: currentUser.id // Sending the numeric ID (5, 8, etc.)
+          userId: currentUser.id 
         });
 
         const url = `http://localhost:8080/api/sales?${queryParams.toString()}`;
@@ -103,38 +101,180 @@ const Pos = ({ products, refreshData }) => {
 
       if (allSuccessful) {
         const firstResult = await responses[0].json();
-        const customInvoice = generateComplexInvoiceId(firstResult.id, cart, paymentMethod);
+        // FIXED: Removed cart dependency for ID generation
+        const customInvoice = generateComplexInvoiceId(firstResult.id, paymentMethod);
         
+        setLastTransaction({
+            invoice: customInvoice,
+            items: [...cart],
+            total: totalAmount,
+            cashier: currentUser.username,
+            date: new Date().toLocaleString(),
+            method: paymentMethod
+        });
+
         await refreshData();
-        alert(`✅ TRANSACTION SUCCESSFUL\n\nInvoice: ${customInvoice}\nCashier: ${currentUser.username}\nTotal: RM ${totalAmount.toFixed(2)}`);
         setCart([]);
+        setShowReceipt(true); 
       } else {
-        const errorText = await responses[0].text();
-        throw new Error(errorText || "Server rejected request");
+        throw new Error("Server rejected request");
       }
     } catch (err) {
-      console.error("Checkout failed:", err);
-      alert("⚠️ CHECKOUT FAILED: User ID not found in database.");
+      setUiError("⚠️ CHECKOUT FAILED: Connection Error");
+      setTimeout(() => setUiError(''), 4000);
     } finally {
       setLoading(false);
     }
   };
 
+  // --- PRINTABLE PDF LAYOUT (Centered for Thermal Printing) ---
+  const PrintableReceipt = ({ data }) => (
+    <div id="thermal-receipt" className="hidden print:block bg-white p-4 text-black font-mono text-[12px] w-[80mm] mx-auto">
+      <div className="text-center mb-4">
+        <h2 className="text-lg font-bold">TERMINAL POS</h2>
+        <p>OFFICIAL SALES RECEIPT</p>
+        <p className="text-[10px]">KUALA LUMPUR, MALAYSIA</p>
+      </div>
+      
+      <div className="border-b border-dashed border-black mb-2"></div>
+      
+      <div className="mb-2 space-y-1">
+        <div className="flex justify-between"><span>ID:</span><span className="font-bold">{data.invoice}</span></div>
+        <div className="flex justify-between"><span>DATE:</span><span>{data.date}</span></div>
+        <div className="flex justify-between"><span>STAFF:</span><span>{data.cashier}</span></div>
+      </div>
+      
+      <div className="border-b border-dashed border-black mb-2"></div>
+      
+      <table className="w-full mb-2 border-collapse">
+        <thead>
+          <tr className="text-left border-b border-black">
+            <th className="py-1">ITEM</th>
+            <th className="text-right">QTY</th>
+            <th className="text-right">PRICE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.items.map((item, idx) => (
+            <tr key={idx}>
+              <td className="py-1">{item.name.substring(0, 20)}</td>
+              <td className="text-right">{item.quantity}</td>
+              <td className="text-right">{(item.promoPrice || item.price).toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      <div className="border-t border-black pt-2 space-y-1">
+        <div className="flex justify-between font-bold text-sm">
+          <span>GRAND TOTAL:</span>
+          <span>RM {data.total.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span>PAYMENT:</span>
+          <span>{data.method}</span>
+        </div>
+      </div>
+      
+      <div className="text-center mt-8 text-[10px]">
+        <p>*** THANK YOU ***</p>
+        <p>PLEASE KEEP RECEIPT FOR RETURN</p>
+      </div>
+    </div>
+  );
+
+  // --- ORIGINAL RECEIPT MODAL ---
+  const ReceiptModal = ({ data, onClose }) => (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+        <div className="p-8 border-b border-dashed border-slate-200 text-center">
+            <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center text-white text-xl mx-auto mb-4">✓</div>
+            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Payment Successful</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{data.invoice}</p>
+        </div>
+        
+        <div className="p-8 space-y-4">
+            <div className="flex justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <span>Description</span>
+                <span>Total</span>
+            </div>
+            <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                {data.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-sm">
+                        <span className="text-slate-600">{item.quantity}x {item.name}</span>
+                        <span className="font-mono font-bold">RM {((item.promoPrice || item.price) * item.quantity).toFixed(2)}</span>
+                    </div>
+                ))}
+            </div>
+            <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
+                <span className="text-sm font-black text-slate-900 uppercase">Grand Total</span>
+                <span className="text-2xl font-mono font-black text-indigo-600">RM {data.total.toFixed(2)}</span>
+            </div>
+            <div className="bg-slate-50 p-4 rounded-xl text-[10px] text-slate-500 space-y-1 font-medium">
+                <div className="flex justify-between"><span>Method:</span><span className="font-bold text-slate-700">{data.method}</span></div>
+                <div className="flex justify-between"><span>Cashier:</span><span className="font-bold text-slate-700">{data.cashier}</span></div>
+                <div className="flex justify-between"><span>Date:</span><span>{data.date}</span></div>
+            </div>
+        </div>
+
+        <div className="p-6 bg-slate-50 flex gap-3">
+            <button 
+                onClick={() => window.print()} 
+                className="flex-1 bg-white border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all"
+            >
+                Print PDF
+            </button>
+            <button 
+                onClick={onClose}
+                className="flex-1 bg-slate-900 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-200"
+            >
+                Done
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-6 md:p-10 max-w-[1800px] mx-auto h-screen flex flex-col gap-8 bg-slate-50 font-sans text-slate-900">
       
-      {/* HEADER */}
-      <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-slate-200 pb-6 bg-white p-6 rounded-xl shadow-sm">
+      <style>
+        {`
+          @media print {
+            body * { visibility: hidden; }
+            #thermal-receipt, #thermal-receipt * { visibility: visible; }
+            #thermal-receipt {
+              position: absolute;
+              left: 0;
+              right: 0;
+              top: 5mm;
+              margin: 0 auto;
+              width: 80mm;
+              display: block;
+            }
+          }
+        `}
+      </style>
+
+      {lastTransaction && <PrintableReceipt data={lastTransaction} />}
+
+      {uiError && (
+        <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold text-xs animate-bounce uppercase tracking-widest">
+            {uiError}
+        </div>
+      )}
+
+      {showReceipt && <ReceiptModal data={lastTransaction} onClose={() => setShowReceipt(false)} />}
+
+      <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-slate-200 pb-6 bg-white p-6 rounded-xl shadow-sm no-print">
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-lg shadow-indigo-200">
-            {/* ADJUSTED: Changed name to username */}
+          <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-black text-xs shadow-lg shadow-indigo-200 transform hover:rotate-12 transition-transform">
             {currentUser?.username ? currentUser.username.substring(0, 2).toUpperCase() : '??'}
           </div>
           <div>
             <h1 className="text-xl font-bold uppercase tracking-tight italic">Terminal <span className="text-indigo-600">POS</span></h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-               {/* ADJUSTED: Changed name to username */}
-               User: <span className="text-slate-900">{currentUser?.username || 'Guest'}</span> • ID: {currentUser?.id || '--'}
+                Cashier: <span className="text-slate-900">{currentUser?.username || 'Guest'}</span> • ID: {currentUser?.id || '--'}
             </p>
           </div>
         </div>
@@ -142,7 +282,7 @@ const Pos = ({ products, refreshData }) => {
           <input 
             type="text" 
             placeholder="Search items..." 
-            className="w-full py-3 px-5 pl-12 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-sm transition-all"
+            className="w-full py-3 px-5 pl-12 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-medium text-sm transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -150,30 +290,34 @@ const Pos = ({ products, refreshData }) => {
         </div>
       </header>
 
-      <div className="grid grid-cols-12 gap-8 flex-1 overflow-hidden">
+      <div className="grid grid-cols-12 gap-8 flex-1 overflow-hidden no-print">
         
         {/* PRODUCT GRID */}
-        <div className="col-span-12 lg:col-span-8 overflow-y-auto pr-2 custom-scrollbar">
+        <div className="col-span-12 lg:col-span-8 overflow-y-auto pr-2 custom-scrollbar pb-10">
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredProducts.map(p => (
               <button 
                 key={p.id}
                 onClick={() => addToCart(p)}
                 disabled={p.quantity <= 0}
-                className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:border-indigo-500 hover:shadow-xl flex flex-col h-[300px] text-left disabled:opacity-40 relative"
+                className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:border-indigo-500 hover:shadow-2xl hover:-translate-y-1 flex flex-col h-[300px] text-left disabled:opacity-40 relative"
               >
                 {p.promoPrice && (
-                  <span className="absolute top-2 right-2 bg-rose-500 text-white text-[8px] font-bold px-2 py-1 rounded-full z-10">PROMO</span>
+                  <span className="absolute top-2 right-2 bg-rose-500 text-white text-[8px] font-black px-2 py-1 rounded-full z-10 animate-pulse">PROMO</span>
                 )}
-                <div className="h-36 w-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-400">
-                  {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover" alt={p.name} /> : 'NO IMAGE'}
+                <div className="h-36 w-full bg-slate-100 flex items-center justify-center overflow-hidden">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.name} />
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-300 uppercase">No Preview</span>
+                  )}
                 </div>
                 <div className="p-4 flex flex-col justify-between flex-1">
-                  <h3 className="font-bold text-slate-800 text-[11px] uppercase line-clamp-2">{p.name}</h3>
+                  <h3 className="font-bold text-slate-800 text-[11px] uppercase line-clamp-2 leading-tight tracking-tight">{p.name}</h3>
                   <div>
-                    <p className="text-lg font-mono font-bold text-slate-900">RM {(p.promoPrice || p.price).toFixed(2)}</p>
-                    <p className={`text-[9px] font-black uppercase mt-1 ${p.quantity < 5 ? 'text-rose-500' : 'text-slate-400'}`}>
-                       Stock: {p.quantity}
+                    <p className="text-lg font-mono font-black text-slate-900">RM {(p.promoPrice || p.price).toFixed(2)}</p>
+                    <p className={`text-[9px] font-black uppercase mt-1 px-2 py-1 inline-block rounded ${p.quantity < 5 ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>
+                        QTY: {p.quantity}
                     </p>
                   </div>
                 </div>
@@ -183,28 +327,28 @@ const Pos = ({ products, refreshData }) => {
         </div>
 
         {/* CART */}
-        <div className="col-span-12 lg:col-span-4 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm overflow-hidden h-full">
-          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-            <h2 className="font-bold text-slate-800 text-[10px] uppercase tracking-widest">Active Order</h2>
-            <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 hover:underline uppercase">Clear All</button>
+        <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200 flex flex-col shadow-xl overflow-hidden h-full relative">
+          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
+            <h2 className="font-black text-slate-800 text-[10px] uppercase tracking-[0.2em]">Current Order</h2>
+            <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest transition-colors">Void Order</button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
             {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2">
-                   <span className="text-3xl">🛒</span>
-                   <span className="text-[10px] font-bold uppercase tracking-widest">Cart Empty</span>
+                <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4 opacity-40">
+                   <div className="text-5xl">📦</div>
+                   <span className="text-[10px] font-black uppercase tracking-[0.3em]">Scanner Ready</span>
                 </div>
             ) : cart.map(item => (
-              <div key={item.id} className="flex items-center gap-4 group">
+              <div key={item.id} className="flex items-center gap-4 bg-slate-50/50 p-3 rounded-xl border border-transparent hover:border-slate-100 transition-all">
                 <div className="flex-1">
-                  <p className="font-bold text-slate-800 text-[11px] uppercase truncate">{item.name}</p>
-                  <p className="text-[10px] font-mono font-bold text-indigo-600">RM {(item.promoPrice || item.price).toFixed(2)}</p>
+                  <p className="font-bold text-slate-800 text-[11px] uppercase truncate tracking-tight">{item.name}</p>
+                  <p className="text-[10px] font-mono font-black text-indigo-600">RM {(item.promoPrice || item.price).toFixed(2)}</p>
                 </div>
-                <div className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-lg p-1">
-                  <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 flex items-center justify-center font-bold hover:text-rose-500 transition-colors">-</button>
-                  <span className="text-[10px] font-bold w-4 text-center">{item.quantity}</span>
-                  <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center font-bold hover:text-indigo-600 transition-colors">+</button>
+                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+                  <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 flex items-center justify-center font-bold hover:bg-slate-50 rounded text-slate-400 hover:text-rose-500 transition-all">-</button>
+                  <span className="text-[10px] font-black w-4 text-center">{item.quantity}</span>
+                  <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center font-bold hover:bg-slate-50 rounded text-slate-400 hover:text-indigo-600 transition-all">+</button>
                 </div>
               </div>
             ))}
@@ -212,16 +356,16 @@ const Pos = ({ products, refreshData }) => {
 
           <div className="p-6 bg-slate-900 text-white">
             <div className="flex justify-between items-end mb-6">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Payable</span>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Net Amount</span>
               <span className="text-3xl font-mono font-black text-indigo-400">RM {totalAmount.toFixed(2)}</span>
             </div>
 
-            <div className="flex gap-2 mb-4">
+            <div className="grid grid-cols-2 gap-3 mb-6">
               {['CASH', 'CARD'].map(m => (
                 <button 
                   key={m}
                   onClick={() => setPaymentMethod(m)}
-                  className={`flex-1 py-3 text-[10px] font-bold rounded-lg border transition-all ${paymentMethod === m ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-700 text-slate-500 hover:border-slate-500'}`}
+                  className={`py-3 text-[10px] font-black rounded-xl border transition-all uppercase tracking-widest ${paymentMethod === m ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-700 text-slate-500 hover:border-slate-500'}`}
                 >
                   {m}
                 </button>
@@ -231,9 +375,10 @@ const Pos = ({ products, refreshData }) => {
             <button 
               onClick={handleCheckout}
               disabled={loading || cart.length === 0}
-              className="w-full bg-indigo-500 text-white py-4 rounded-lg font-black text-[11px] uppercase tracking-widest hover:bg-indigo-400 transition-all disabled:opacity-20 active:scale-95 shadow-lg shadow-indigo-900/20"
+              className="group relative w-full bg-indigo-500 text-white py-5 rounded-xl font-black text-[11px] uppercase tracking-[0.2em] hover:bg-indigo-400 transition-all disabled:opacity-20 active:scale-[0.98] shadow-2xl shadow-indigo-500/20 overflow-hidden"
             >
-              {loading ? 'Processing...' : 'Complete Order'}
+              <span className="relative z-10">{loading ? 'Validating...' : 'Authorize Checkout'}</span>
+              <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
             </button>
           </div>
         </div>
