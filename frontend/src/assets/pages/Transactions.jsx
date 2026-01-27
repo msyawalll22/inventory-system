@@ -15,6 +15,7 @@ const Transactions = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // 1. Fetch from your Spring Boot Backend
   useEffect(() => {
     const fetchLogs = async () => {
       try {
@@ -32,33 +33,30 @@ const Transactions = () => {
     fetchLogs();
   }, []);
 
-  // Handle Filtering Logic (Search + Type + Date)
+  // 2. Handle Filtering Logic
   useEffect(() => {
     let result = transactions;
 
-    // 1. Search Filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(t => 
         t.user?.username?.toLowerCase().includes(term) ||
         t.product?.name?.toLowerCase().includes(term) ||
-        t.description?.toLowerCase().includes(term)
+        t.description?.toLowerCase().includes(term) ||
+        t.reference?.toLowerCase().includes(term)
       );
     }
 
-    // 2. Type Filter
     if (typeFilter === 'IN') {
       result = result.filter(t => t.quantity > 0);
     } else if (typeFilter === 'OUT') {
       result = result.filter(t => t.quantity < 0);
     }
 
-    // 3. Date Filter
     if (startDate) {
       result = result.filter(t => new Date(t.createdAt) >= new Date(startDate));
     }
     if (endDate) {
-      // Set end date to end of the day for inclusive filtering
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       result = result.filter(t => new Date(t.createdAt) <= end);
@@ -67,55 +65,75 @@ const Transactions = () => {
     setFilteredLogs(result);
   }, [searchTerm, typeFilter, startDate, endDate, transactions]);
 
-  // --- EXPORT LOGIC ---
+  // --- FINANCIAL CALCULATIONS (Adjusted to ensure Stock-Out is captured) ---
+  const positiveFlow = filteredLogs
+    .filter(t => t.quantity > 0)
+    .reduce((acc, t) => acc + (Number(t.totalAmount) || 0), 0);
 
+  const negativeFlow = filteredLogs
+    .filter(t => t.quantity < 0)
+    .reduce((acc, t) => acc + (Number(t.totalAmount) || 0), 0);
+
+  const totalValue = positiveFlow - negativeFlow;
+
+  // --- EXPORT & REPORT LOGIC ---
   const exportToExcel = () => {
-    try {
-      if (filteredLogs.length === 0) return alert("No data to export");
-      const data = filteredLogs.map(t => ({
-        Timestamp: new Date(t.createdAt).toLocaleString('en-GB'),
-        Operator: t.user?.username || 'System',
-        Product: t.product?.name || 'N/A',
-        Description: t.description || 'Adjustment',
-        Qty_Change: t.quantity
-      }));
-      const worksheet = XLSX.utils.json_to_sheet(data);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Audit Logs");
-      XLSX.writeFile(workbook, `Filtered_Audit_${new Date().getTime()}.xlsx`);
-      setShowExportOptions(false);
-    } catch (err) { console.error(err); }
+    if (filteredLogs.length === 0) return alert("No data to export");
+    const data = filteredLogs.map(t => ({
+      Date: new Date(t.createdAt).toLocaleDateString('en-GB'),
+      Reference: t.reference || 'N/A',
+      Product: t.product?.name || 'N/A',
+      Type: t.quantity > 0 ? 'STOCK-IN' : 'STOCK-OUT',
+      Qty: t.quantity,
+      Amount_RM: (Number(t.totalAmount) || 0).toFixed(2)
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Ledger");
+    XLSX.writeFile(workbook, `Inventory_Report_${Date.now()}.xlsx`);
+    setShowExportOptions(false);
   };
 
-  const exportToPDF = () => {
-    try {
-      const doc = new jsPDF();
-      if (filteredLogs.length === 0) return alert("No data to export");
-      doc.setFontSize(16).text("INVENTORY AUDIT REPORT", 14, 20);
-      doc.setFontSize(9).setTextColor(100).text(`Generated: ${new Date().toLocaleString()}`, 14, 27);
-      
-      const tableColumn = ["Date", "Operator", "Asset", "Description", "Change"];
-      const tableRows = filteredLogs.map(t => [
-        new Date(t.createdAt).toLocaleDateString('en-GB'),
-        t.user?.username || 'System',
-        t.product?.name || 'N/A',
-        t.description || "Adj",
-        t.quantity > 0 ? `+${t.quantity}` : t.quantity
-      ]);
+  const generatePDFReport = () => {
+    const doc = new jsPDF();
+    if (filteredLogs.length === 0) return alert("No data to report");
 
-      autoTable(doc, {
-        startY: 35,
-        head: [tableColumn],
-        body: tableRows,
-        headStyles: { fillColor: [79, 70, 229] },
-        styles: { fontSize: 8 }
-      });
-      doc.save(`Audit_Report_${new Date().getTime()}.pdf`);
-      setShowExportOptions(false);
-    } catch (err) { console.error(err); }
+    // Report Branding
+    doc.setFontSize(20).setTextColor(30, 41, 59).text("FINANCIAL AUDIT REPORT", 14, 22);
+    doc.setFontSize(10).setTextColor(100).text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+    
+    // Summary Box
+    doc.setFillColor(248, 250, 252);
+    doc.rect(14, 35, 182, 25, 'F');
+    doc.setFontSize(9).setTextColor(30, 41, 59).setFont(undefined, 'bold');
+    doc.text(`Total Stock-In: RM ${positiveFlow.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 20, 45);
+    doc.text(`Total Stock-Out: RM ${negativeFlow.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 20, 52);
+    doc.text(`Net Balance: RM ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 130, 49);
+
+    const tableColumn = ["Date", "Reference", "Product", "Qty", "Total (RM)"];
+    const tableRows = filteredLogs.map(t => [
+      new Date(t.createdAt).toLocaleDateString('en-GB'),
+      t.reference || 'N/A',
+      t.product?.name || 'N/A',
+      t.quantity > 0 ? `+${t.quantity}` : t.quantity,
+      (Number(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })
+    ]);
+
+    autoTable(doc, {
+      startY: 65,
+      head: [tableColumn],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [79, 70, 229], fontSize: 9 },
+      styles: { fontSize: 8 },
+      columnStyles: { 4: { halign: 'right' } }
+    });
+
+    doc.save(`Audit_Report_${Date.now()}.pdf`);
+    setShowExportOptions(false);
   };
 
-  if (loading) return <div className="p-20 text-center font-mono animate-pulse">Accessing Audit Database...</div>;
+  if (loading) return <div className="p-20 text-center font-mono animate-pulse uppercase tracking-widest text-slate-400">Syncing with Backend Ledger...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
@@ -126,71 +144,36 @@ const Transactions = () => {
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
-                Inventory <span className="text-indigo-600">Logs</span>
+                Transaction <span className="text-indigo-600 italic">Ledger</span>
               </h1>
-               <p className="text-sm text-slate-500 mt-1 font-medium">Movement Stock Tracking.</p>
+              <p className="text-sm text-slate-500 mt-1 font-medium">Financial movement synced with Purchases & Sales.</p>
             </div>
 
-            {/* Filters Container */}
+            {/* Filters */}
             <div className="flex flex-wrap items-center gap-4">
-              
-              {/* Date Inputs */}
               <div className="flex items-center gap-2 bg-white border border-slate-200 p-1.5 rounded-xl shadow-sm">
-                <input 
-                  type="date" 
-                  className="text-[10px] font-bold text-slate-600 outline-none p-1"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
+                <input type="date" className="text-[10px] font-bold text-slate-600 outline-none p-1" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 <span className="text-slate-300">→</span>
-                <input 
-                  type="date" 
-                  className="text-[10px] font-bold text-slate-600 outline-none p-1"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-                {(startDate || endDate) && (
-                  <button onClick={() => {setStartDate(''); setEndDate('');}} className="text-rose-500 text-[10px] font-black px-2">X</button>
-                )}
+                <input type="date" className="text-[10px] font-bold text-slate-600 outline-none p-1" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
 
-              {/* Search */}
               <div className="relative">
-                <input 
-                  type="text"
-                  placeholder="Search logs..."
-                  className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm w-48"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                <svg className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input type="text" placeholder="Search Ref or Product..." className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs outline-none w-48 shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                <span className="absolute left-3 top-3 text-slate-400 text-xs">🔍</span>
               </div>
 
-              {/* Type Toggle */}
-              <div className="flex bg-slate-200 p-1 rounded-xl">
+              <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner">
                 {['ALL', 'IN', 'OUT'].map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setTypeFilter(type)}
-                    className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all ${typeFilter === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    {type}
-                  </button>
+                  <button key={type} onClick={() => setTypeFilter(type)} className={`px-4 py-1.5 text-[10px] font-bold rounded-lg transition-all ${typeFilter === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{type}</button>
                 ))}
               </div>
 
-              {/* Export */}
               <div className="relative">
-                <button 
-                  onClick={() => setShowExportOptions(!showExportOptions)}
-                  className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-bold uppercase hover:bg-slate-900 transition-all shadow-md"
-                >
-                  Export
-                </button>
+                <button onClick={() => setShowExportOptions(!showExportOptions)} className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-bold uppercase hover:bg-slate-900 shadow-md transition-all active:scale-95">Generate Report</button>
                 {showExportOptions && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <button onClick={exportToPDF} className="w-full text-left px-4 py-3 text-[10px] font-bold text-slate-600 hover:bg-slate-50 border-b border-slate-100">PDF Report</button>
-                    <button onClick={exportToExcel} className="w-full text-left px-4 py-3 text-[10px] font-bold text-slate-600 hover:bg-slate-50">Excel Sheet</button>
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                    <button onClick={generatePDFReport} className="w-full text-left px-5 py-4 text-[10px] font-bold text-slate-600 hover:bg-slate-50 border-b flex items-center justify-between">PDF Audit Report <span>📄</span></button>
+                    <button onClick={exportToExcel} className="w-full text-left px-5 py-4 text-[10px] font-bold text-slate-600 hover:bg-slate-50 flex items-center justify-between">Excel Spreadsheet <span>📊</span></button>
                   </div>
                 )}
               </div>
@@ -198,42 +181,64 @@ const Transactions = () => {
           </div>
         </header>
 
+        {/* --- FINANCIAL SUMMARY CARDS --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm group hover:border-indigo-200 transition-all">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Value Balance</p>
+            <h3 className={`text-2xl font-mono font-bold mt-1 ${totalValue >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+              RM {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm border-l-4 border-l-emerald-500">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stock-In (Purchases)</p>
+            <h3 className="text-2xl font-mono font-bold mt-1 text-slate-800">
+              RM {positiveFlow.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm border-l-4 border-l-rose-500">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stock-Out (Sales)</p>
+            <h3 className="text-2xl font-mono font-bold mt-1 text-slate-800">
+              RM {negativeFlow.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </h3>
+          </div>
+        </div>
+
         {/* Table */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-widest border-b border-slate-200">
-                <th className="px-6 py-4">Timestamp</th>
-                <th className="px-6 py-4">Operator</th>
-                <th className="px-6 py-4">Asset</th>
-                <th className="px-6 py-4">Action</th>
-                <th className="px-6 py-4 text-right">Qty</th>
+              <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-widest border-b">
+                <th className="px-6 py-5">Timestamp</th>
+                <th className="px-6 py-5">Asset & Reference</th>
+                <th className="px-6 py-5">Description</th>
+                <th className="px-6 py-5 text-right">Qty</th>
+                <th className="px-6 py-5 text-right">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredLogs.length > 0 ? filteredLogs.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/30 transition-colors">
+                <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-5 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-slate-700">{new Date(t.createdAt).toLocaleDateString('en-GB')}</div>
+                    <div className="text-sm font-bold text-slate-700">{new Date(t.createdAt).toLocaleDateString('en-GB')}</div>
                     <div className="text-[10px] font-mono text-slate-400">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                   </td>
                   <td className="px-6 py-5">
-                    <div className="text-sm font-bold text-slate-800">{t.user?.username || 'System'}</div>
-                    <div className="text-[9px] font-black text-indigo-500 uppercase">{t.user?.role || 'SYSTEM'}</div>
+                    <div className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{t.product?.name || 'Unknown Product'}</div>
+                    <div className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">{t.reference || 'NO-REF'}</div>
                   </td>
                   <td className="px-6 py-5">
-                    <span className="text-sm font-bold text-slate-800 block">{t.product?.name || "N/A"}</span>
-                  </td>
-                  <td className="px-6 py-5">
-                    <p className="text-xs text-slate-500 italic">{t.description || "Manual adjustment"}</p>
+                    <p className="text-xs text-slate-500 italic">{t.description || "System Log"}</p>
                   </td>
                   <td className={`px-6 py-5 text-right font-mono font-bold text-sm ${t.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
                     {t.quantity > 0 ? `+${t.quantity}` : t.quantity}
                   </td>
+                  <td className="px-6 py-5 text-right font-mono font-bold text-sm text-slate-900">
+                    RM {(Number(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center text-slate-400 text-[10px] font-bold uppercase tracking-widest">No matching records found</td>
+                  <td colSpan="5" className="px-6 py-20 text-center text-slate-300 text-[10px] font-bold uppercase tracking-widest">No matching records found in database</td>
                 </tr>
               )}
             </tbody>

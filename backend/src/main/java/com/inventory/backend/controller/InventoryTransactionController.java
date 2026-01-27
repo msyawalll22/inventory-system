@@ -3,13 +3,12 @@ package com.inventory.backend.controller;
 import com.inventory.backend.model.InventoryTransaction;
 import com.inventory.backend.repository.InventoryTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-// Changed to match your history.html fetch URL
 @RequestMapping("/api/inventory-transactions") 
 @CrossOrigin(origins = "*")
 public class InventoryTransactionController {
@@ -19,12 +18,20 @@ public class InventoryTransactionController {
 
     @GetMapping
     public List<InventoryTransaction> getAllTransactions() {
-        // Added sorting so the latest SALE or PURCHASE shows at the TOP of the table
-        return transactionRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        // Fetches all records and triggers the @Formula to look up Purchases and Sales
+        return transactionRepository.findAllSorted();
     }
 
     @PostMapping
-    public InventoryTransaction createTransaction(@RequestBody InventoryTransaction transaction) {
-        return transactionRepository.save(transaction);
+    public ResponseEntity<InventoryTransaction> createTransaction(@RequestBody InventoryTransaction transaction) {
+        // 1. Save the basic transaction (Product, Qty, Reference)
+        InventoryTransaction savedTransaction = transactionRepository.save(transaction);
+        
+        // 2. IMPORTANT: Re-fetch from DB so the @Formula logic actually executes
+        // This ensures totalAmount is fetched from the Sales/Purchases table immediately
+        InventoryTransaction enrichedTransaction = transactionRepository.findById(savedTransaction.getId())
+                .orElse(savedTransaction);
+                
+        return ResponseEntity.ok(enrichedTransaction);
     }
 }

@@ -2,13 +2,17 @@ package com.inventory.backend.repository;
 
 import com.inventory.backend.model.InventoryTransaction;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional; // Import this
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 
 @Repository
 public interface InventoryTransactionRepository extends JpaRepository<InventoryTransaction, Long> {
     
-    // Add this line inside the interface
     @Transactional
     void deleteByProductId(Long productId);
+
+    @Query("SELECT t FROM InventoryTransaction t ORDER BY t.createdAt DESC")
+    List<InventoryTransaction> findAllSorted();
 }
