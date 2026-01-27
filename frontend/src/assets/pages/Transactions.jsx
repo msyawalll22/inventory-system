@@ -9,19 +9,23 @@ const Transactions = () => {
   const [loading, setLoading] = useState(true);
   const [showExportOptions, setShowExportOptions] = useState(false);
 
-  // Search & Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL'); 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // 1. Fetch from your Spring Boot Backend
+  // 1. Fetch from Backend
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const res = await fetch('http://localhost:8080/api/inventory-transactions');
+        // Added cache busting (?t=...) to ensure fresh data after backend changes
+        const res = await fetch(`http://localhost:8080/api/inventory-transactions?t=${Date.now()}`);
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const data = await res.json();
+        
+        // IMPORTANT: Check your browser console to see if totalAmount is 0 or null
+        console.log("Verified Ledger Data:", data);
+        
         setTransactions(data);
         setFilteredLogs(data);
       } catch (err) {
@@ -33,7 +37,7 @@ const Transactions = () => {
     fetchLogs();
   }, []);
 
-  // 2. Handle Filtering Logic
+  // 2. Filtering Logic
   useEffect(() => {
     let result = transactions;
 
@@ -65,18 +69,19 @@ const Transactions = () => {
     setFilteredLogs(result);
   }, [searchTerm, typeFilter, startDate, endDate, transactions]);
 
-  // --- FINANCIAL CALCULATIONS (Adjusted to ensure Stock-Out is captured) ---
+  // --- FINANCIAL CALCULATIONS ---
+  // Use parseFloat and fallback to 0.0 to prevent "NaN" errors
   const positiveFlow = filteredLogs
     .filter(t => t.quantity > 0)
-    .reduce((acc, t) => acc + (Number(t.totalAmount) || 0), 0);
+    .reduce((acc, t) => acc + (parseFloat(t.totalAmount) || 0), 0);
 
   const negativeFlow = filteredLogs
     .filter(t => t.quantity < 0)
-    .reduce((acc, t) => acc + (Number(t.totalAmount) || 0), 0);
+    .reduce((acc, t) => acc + (parseFloat(t.totalAmount) || 0), 0);
 
   const totalValue = positiveFlow - negativeFlow;
 
-  // --- EXPORT & REPORT LOGIC ---
+  // --- EXPORT LOGIC ---
   const exportToExcel = () => {
     if (filteredLogs.length === 0) return alert("No data to export");
     const data = filteredLogs.map(t => ({
@@ -85,7 +90,7 @@ const Transactions = () => {
       Product: t.product?.name || 'N/A',
       Type: t.quantity > 0 ? 'STOCK-IN' : 'STOCK-OUT',
       Qty: t.quantity,
-      Amount_RM: (Number(t.totalAmount) || 0).toFixed(2)
+      Amount_RM: (parseFloat(t.totalAmount) || 0).toFixed(2)
     }));
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
@@ -98,11 +103,9 @@ const Transactions = () => {
     const doc = new jsPDF();
     if (filteredLogs.length === 0) return alert("No data to report");
 
-    // Report Branding
     doc.setFontSize(20).setTextColor(30, 41, 59).text("FINANCIAL AUDIT REPORT", 14, 22);
     doc.setFontSize(10).setTextColor(100).text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
     
-    // Summary Box
     doc.setFillColor(248, 250, 252);
     doc.rect(14, 35, 182, 25, 'F');
     doc.setFontSize(9).setTextColor(30, 41, 59).setFont(undefined, 'bold');
@@ -116,7 +119,7 @@ const Transactions = () => {
       t.reference || 'N/A',
       t.product?.name || 'N/A',
       t.quantity > 0 ? `+${t.quantity}` : t.quantity,
-      (Number(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })
+      (parseFloat(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })
     ]);
 
     autoTable(doc, {
@@ -139,7 +142,6 @@ const Transactions = () => {
     <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header */}
         <header className="mb-8 pb-8 border-b border-slate-200">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div>
@@ -149,29 +151,32 @@ const Transactions = () => {
               <p className="text-sm text-slate-500 mt-1 font-medium">Financial movement synced with Purchases & Sales.</p>
             </div>
 
-            {/* Filters */}
             <div className="flex flex-wrap items-center gap-4">
+              {/* Date Filters */}
               <div className="flex items-center gap-2 bg-white border border-slate-200 p-1.5 rounded-xl shadow-sm">
                 <input type="date" className="text-[10px] font-bold text-slate-600 outline-none p-1" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 <span className="text-slate-300">→</span>
                 <input type="date" className="text-[10px] font-bold text-slate-600 outline-none p-1" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
 
+              {/* Search */}
               <div className="relative">
                 <input type="text" placeholder="Search Ref or Product..." className="pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs outline-none w-48 shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 <span className="absolute left-3 top-3 text-slate-400 text-xs">🔍</span>
               </div>
 
+              {/* Type Toggle */}
               <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner">
                 {['ALL', 'IN', 'OUT'].map((type) => (
                   <button key={type} onClick={() => setTypeFilter(type)} className={`px-4 py-1.5 text-[10px] font-bold rounded-lg transition-all ${typeFilter === type ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{type}</button>
                 ))}
               </div>
 
+              {/* Export Button */}
               <div className="relative">
                 <button onClick={() => setShowExportOptions(!showExportOptions)} className="px-5 py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-bold uppercase hover:bg-slate-900 shadow-md transition-all active:scale-95">Generate Report</button>
                 {showExportOptions && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
                     <button onClick={generatePDFReport} className="w-full text-left px-5 py-4 text-[10px] font-bold text-slate-600 hover:bg-slate-50 border-b flex items-center justify-between">PDF Audit Report <span>📄</span></button>
                     <button onClick={exportToExcel} className="w-full text-left px-5 py-4 text-[10px] font-bold text-slate-600 hover:bg-slate-50 flex items-center justify-between">Excel Spreadsheet <span>📊</span></button>
                   </div>
@@ -181,9 +186,9 @@ const Transactions = () => {
           </div>
         </header>
 
-        {/* --- FINANCIAL SUMMARY CARDS --- */}
+        {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm group hover:border-indigo-200 transition-all">
+          <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Value Balance</p>
             <h3 className={`text-2xl font-mono font-bold mt-1 ${totalValue >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
               RM {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -233,12 +238,12 @@ const Transactions = () => {
                     {t.quantity > 0 ? `+${t.quantity}` : t.quantity}
                   </td>
                   <td className="px-6 py-5 text-right font-mono font-bold text-sm text-slate-900">
-                    RM {(Number(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    RM {(parseFloat(t.totalAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-20 text-center text-slate-300 text-[10px] font-bold uppercase tracking-widest">No matching records found in database</td>
+                  <td colSpan="5" className="px-6 py-20 text-center text-slate-300 text-[10px] font-bold uppercase tracking-widest">No matching records found</td>
                 </tr>
               )}
             </tbody>

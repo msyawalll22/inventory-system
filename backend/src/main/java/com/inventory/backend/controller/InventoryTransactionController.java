@@ -5,7 +5,6 @@ import com.inventory.backend.repository.InventoryTransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 
 @RestController
@@ -18,20 +17,13 @@ public class InventoryTransactionController {
 
     @GetMapping
     public List<InventoryTransaction> getAllTransactions() {
-        // Fetches all records and triggers the @Formula to look up Purchases and Sales
         return transactionRepository.findAllSorted();
     }
 
     @PostMapping
     public ResponseEntity<InventoryTransaction> createTransaction(@RequestBody InventoryTransaction transaction) {
-        // 1. Save the basic transaction (Product, Qty, Reference)
-        InventoryTransaction savedTransaction = transactionRepository.save(transaction);
-        
-        // 2. IMPORTANT: Re-fetch from DB so the @Formula logic actually executes
-        // This ensures totalAmount is fetched from the Sales/Purchases table immediately
-        InventoryTransaction enrichedTransaction = transactionRepository.findById(savedTransaction.getId())
-                .orElse(savedTransaction);
-                
-        return ResponseEntity.ok(enrichedTransaction);
+        InventoryTransaction saved = transactionRepository.save(transaction);
+        // Refresh to trigger the formula lookup in sale_items
+        return ResponseEntity.ok(transactionRepository.findById(saved.getId()).orElse(saved));
     }
 }
