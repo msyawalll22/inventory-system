@@ -98,9 +98,9 @@ const Dashboard = ({ inventory = [], refreshData }) => {
           <StatCard title="Inventory Value" value={`RM ${totalStockValue.toLocaleString()}`} subtext="Current Asset Worth" icon="🏦" color="slate" />
           <StatCard title="Total Units" value={totalItems.toLocaleString()} subtext="Stock on Hand" icon="📦" color="slate" />
           <StatCard 
-            title="Health Alerts" 
+            title="Inventory Alerts" 
             value={outOfStock} 
-            subtext={outOfStock > 0 ? "Depletion Found" : "Systems Nominal"} 
+            subtext={outOfStock > 0 ? "Product Out Of Stock" : "Stock Alert"} 
             icon="🚨" 
             color={outOfStock > 0 ? "rose" : "emerald"}
             alert={outOfStock > 0}
