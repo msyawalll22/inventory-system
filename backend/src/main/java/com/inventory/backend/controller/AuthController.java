@@ -30,7 +30,6 @@ public class AuthController {
     public ResponseEntity<?> loginUser(@RequestBody User user) {
         User existingUser = userRepository.findByUsername(user.getUsername());
 
-        // existingUser will be null if soft-deleted because of @Where annotation
         if (existingUser != null && passwordEncoder.matches(user.getPassword(), existingUser.getPassword())) {
             String token = jwtUtils.generateToken(existingUser.getUsername(), existingUser.getRole());
             
@@ -75,16 +74,11 @@ public class AuthController {
         if (!isAdmin(authHeader)) {
             return ResponseEntity.status(403).body("Access Denied.");
         }
-        // Returns only active users due to @Where annotation
         List<User> users = userRepository.findAll();
         users.forEach(u -> u.setPassword("PROTECTED")); 
         return ResponseEntity.ok(users);
     }
 
-    /**
-     * UPDATE USER (CRUD: U)
-     * Handles PUT requests to /api/auth/users/{id}
-     */
     @PutMapping("/users/{id}")
     public ResponseEntity<?> updateUser(
             @PathVariable Long id,
@@ -99,7 +93,6 @@ public class AuthController {
             user.setUsername(userDetails.getUsername());
             user.setRole(userDetails.getRole());
 
-            // Only update password if a new one is provided and it's not the "PROTECTED" placeholder
             if (userDetails.getPassword() != null && !userDetails.getPassword().isEmpty() 
                 && !userDetails.getPassword().equals("PROTECTED")) {
                 user.setPassword(passwordEncoder.encode(userDetails.getPassword()));
@@ -119,9 +112,19 @@ public class AuthController {
             return ResponseEntity.status(403).body("Access Denied.");
         }
 
-        // This triggers the @SQLDelete update statement in the Model
-        userRepository.deleteById(id);
-        return ResponseEntity.ok("User account deactivated.");
+        return userRepository.findById(id).map(user -> {
+            // NEW: Prevent deactivating the last admin
+            if ("ADMIN".equals(user.getRole())) {
+                long adminCount = userRepository.countByRoleAndDeleted("ADMIN", false);
+                if (adminCount <= 1) {
+                    return ResponseEntity.status(400).body("Action Aborted: You cannot deactivate the only remaining Administrator.");
+                }
+            }
+
+            // Triggers soft-delete
+            userRepository.deleteById(id);
+            return ResponseEntity.ok("User account deactivated.");
+        }).orElse(ResponseEntity.notFound().build());
     }
 
     private boolean isAdmin(String authHeader) {

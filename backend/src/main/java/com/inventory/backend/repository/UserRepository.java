@@ -6,7 +6,10 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
-    // This magic line tells Spring Boot to write the SQL: 
-    // "SELECT * FROM users WHERE username = ?"
+    
+    // Finds a user by username
     User findByUsername(String username);
+
+    // SQL equivalent: SELECT COUNT(*) FROM users WHERE role = ? AND deleted = ?
+    long countByRoleAndDeleted(String role, boolean deleted);
 }
