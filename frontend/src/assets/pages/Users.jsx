@@ -7,7 +7,6 @@ const Users = () => {
   const [formData, setFormData] = useState({ username: '', password: '', role: 'STAFF' });
   const [loading, setLoading] = useState(false);
   
-  // Updated Alert State to match Inventory system
   const [alertConfig, setAlertConfig] = useState({ 
     show: false, 
     title: '', 
@@ -22,7 +21,10 @@ const Users = () => {
       const response = await apiRequest('/auth/users');
       if (response.ok) {
         const data = await response.json();
-        setUsers(data);
+        // SOFT DELETE FILTER: Only show users who are not deleted
+        // If your backend doesn't filter this automatically, we do it here
+        const activeUsers = data.filter(user => user.deleted !== true);
+        setUsers(activeUsers);
       }
     } catch (error) {
       console.error("Failed to fetch users:", error);
@@ -67,7 +69,7 @@ const Users = () => {
         show: true,
         type: 'error',
         title: "AUTH ERROR",
-        message: "Network authentication failure. Please check your connection."
+        message: "Network authentication failure."
       });
     } finally {
       setLoading(false);
@@ -78,42 +80,44 @@ const Users = () => {
     setConfirmModal({ show: true, userId: id, username: username });
   };
 
+  // UPDATED FOR SOFT DELETE
   const executeRevoke = async () => {
     const { userId, username } = confirmModal;
     setConfirmModal({ show: false, userId: null, username: '' });
 
     try {
-      const response = await apiRequest(`/auth/users/${userId}`, { method: 'DELETE' });
+      /** * NOTE: For Soft Delete, your Backend DELETE route should simply set 
+       * 'deleted = true' in the DB instead of executing 'DELETE FROM users...'
+       */
+      const response = await apiRequest(`/auth/users/${userId}`, { 
+        method: 'DELETE' // Or 'PATCH' if your API uses a status update route
+      });
+
       if (response.ok) {
-        fetchUsers();
+        // UI OPTIMISTIC UPDATE: Remove user from list immediately
+        setUsers(users.filter(u => u.id !== userId));
+        
         setAlertConfig({
           show: true,
           type: 'success',
-          title: "REVOKED",
-          message: `Access privileges for @${username} have been terminated.`
+          title: "ACCESS REVOKED",
+          message: `@${username} has been deactivated. Data remains in archive.`
         });
       } else {
-        setAlertConfig({
-          show: true,
-          type: 'error',
-          title: "REVOCATION FAILED",
-          message: "Could not remove user. They may have active system logs."
-        });
+        throw new Error();
       }
     } catch (err) {
       setAlertConfig({
         show: true,
         type: 'error',
         title: "SYSTEM ERROR",
-        message: "An error occurred during the revocation process."
+        message: "Could not deactivate user account."
       });
     }
   };
 
   return (
     <div className="relative min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
-      
-      {/* INTEGRATED ANIMATED ALERT */}
       <SuccessAlert 
         show={alertConfig.show}
         type={alertConfig.type}
@@ -122,19 +126,19 @@ const Users = () => {
         onConfirm={() => setAlertConfig({ ...alertConfig, show: false })}
       />
 
-      {/* CONFIRMATION POPUP */}
       {confirmModal.show && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all animate-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-8 text-center">
-              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-5 rotate-3">
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-5">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Revoke Access?</h3>
+              <h3 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Deactivate User?</h3>
               <p className="text-sm text-slate-500 mt-2 px-4 leading-relaxed font-medium">
-                Permanently disable access for <span className="font-bold text-slate-900">@{confirmModal.username}</span>.
+                This will soft-delete <span className="font-bold text-slate-900">@{confirmModal.username}</span>. 
+                They will no longer be able to log in.
               </p>
             </div>
             
@@ -143,13 +147,13 @@ const Users = () => {
                 onClick={() => setConfirmModal({ show: false, userId: null, username: '' })}
                 className="flex-1 px-4 py-3 text-[10px] font-bold text-slate-500 hover:bg-white rounded-xl transition-all border border-transparent hover:border-slate-200"
               >
-                CANCEL
+                BACK
               </button>
               <button 
                 onClick={executeRevoke}
-                className="flex-1 px-4 py-3 text-[10px] font-bold bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 uppercase"
+                className="flex-1 px-4 py-3 text-[10px] font-bold bg-slate-900 text-white rounded-xl hover:bg-rose-600 transition-all shadow-lg uppercase"
               >
-                Revoke Now
+                Confirm Deactivation
               </button>
             </div>
           </div>
@@ -165,7 +169,6 @@ const Users = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-          
           {/* REGISTRATION PANEL */}
           <div className="lg:col-span-4">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden sticky top-8">
@@ -187,7 +190,7 @@ const Users = () => {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Temporary Password</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Create Password</label>
                     <input
                       required
                       type="password"
@@ -200,22 +203,20 @@ const Users = () => {
 
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
-                    <div className="relative">
-                      <select
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none appearance-none font-bold text-xs text-slate-700 cursor-pointer"
-                        value={formData.role}
-                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                      >
-                        <option value="STAFF">STAFF (Restricted)</option>
-                        <option value="ADMIN">ADMIN (Full Access)</option>
-                      </select>
-                    </div>
+                    <select
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none appearance-none font-bold text-xs text-slate-700 cursor-pointer"
+                      value={formData.role}
+                      onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    >
+                      <option value="STAFF">STAFF (Restricted)</option>
+                      <option value="ADMIN">ADMIN (Full Access)</option>
+                    </select>
                   </div>
 
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full bg-slate-900 text-white py-4 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200 active:scale-[0.98] disabled:opacity-50 mt-4"
+                    className="w-full bg-slate-900 text-white py-4 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl active:scale-[0.98] disabled:opacity-50 mt-4"
                   >
                     {loading ? "Authorizing..." : "Provision Account"}
                   </button>
@@ -233,7 +234,7 @@ const Users = () => {
                     <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-200">
                       <th className="px-8 py-5">Identity</th>
                       <th className="px-8 py-5">Status</th>
-                      <th className="px-8 py-5 text-right">Security</th>
+                      <th className="px-8 py-5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -256,16 +257,16 @@ const Users = () => {
                               ? 'bg-amber-50 text-amber-600 border-amber-100' 
                               : 'bg-indigo-50 text-indigo-600 border-indigo-100'
                           }`}>
-                            <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${u.role === 'ADMIN' ? 'bg-amber-500' : 'bg-indigo-500'}`}></span>
+                            <span className={`h-1.5 w-1.5 rounded-full ${u.role === 'ADMIN' ? 'bg-amber-500' : 'bg-indigo-500'}`}></span>
                             {u.role}
                           </span>
                         </td>
                         <td className="px-8 py-6 text-right">
                           <button
                             onClick={() => openConfirmModal(u.id, u.username)}
-                            className="opacity-0 group-hover:opacity-100 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all duration-200"
+                            className="opacity-0 group-hover:opacity-100 bg-slate-100 text-slate-600 hover:bg-rose-600 hover:text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all duration-200"
                           >
-                            Revoke Access
+                            Deactivate
                           </button>
                         </td>
                       </tr>
@@ -276,19 +277,11 @@ const Users = () => {
               
               {users.length === 0 && (
                 <div className="py-24 text-center">
-                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">Zero secondary accounts found</p>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">Zero active accounts found</p>
                 </div>
               )}
             </div>
-            
-            <div className="mt-6 px-2">
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic flex items-center gap-2">
-                <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
-                Security protocol: Admin users have write-access to core database.
-              </p>
-            </div>
           </div>
-
         </div>
       </div>
     </div>

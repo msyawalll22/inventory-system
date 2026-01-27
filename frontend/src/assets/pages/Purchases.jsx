@@ -285,7 +285,7 @@ const Purchases = ({ products = [], refreshData }) => {
                   <div className="md:col-span-2 flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Select Inventory Asset</label>
                     <select required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm font-bold" value={formData.productId} onChange={(e) => setFormData({...formData, productId: e.target.value})}>
-                      <option value="">Search database...</option>
+                      <option value="">Search Inventory...</option>
                       {products.map(p => (
                         <option key={p.id} value={p.id}>{p.name} (Current Stock: {p.quantity})</option>
                       ))}

@@ -26,11 +26,11 @@ public class AuthController {
     @Autowired
     private JwtUtils jwtUtils;
 
-    // --- 1. LOGIN (Public) ---
     @PostMapping("/login")
     public ResponseEntity<?> loginUser(@RequestBody User user) {
         User existingUser = userRepository.findByUsername(user.getUsername());
 
+        // existingUser will be null if soft-deleted because of @Where annotation
         if (existingUser != null && passwordEncoder.matches(user.getPassword(), existingUser.getPassword())) {
             String token = jwtUtils.generateToken(existingUser.getUsername(), existingUser.getRole());
             
@@ -46,13 +46,11 @@ public class AuthController {
         }
     }
 
-    // --- 2. REGISTER (Admin Only - Re-secured) ---
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(
             @RequestBody User user, 
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         
-        // Security Check: Only an existing ADMIN can hit this endpoint
         if (!isAdmin(authHeader)) {
             return ResponseEntity.status(403).body("Access Denied: Only Admins can register new users.");
         }
@@ -62,8 +60,8 @@ public class AuthController {
         }
         
         user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setDeleted(false); 
         
-        // Back to normal: Default to STAFF if no role is specified
         if (user.getRole() == null || user.getRole().isEmpty()) {
             user.setRole("STAFF");
         }
@@ -72,18 +70,17 @@ public class AuthController {
         return ResponseEntity.ok("User registered successfully!");
     }
 
-    // --- 3. GET ALL USERS (Admin Only) ---
     @GetMapping("/users")
     public ResponseEntity<?> getAllUsers(@RequestHeader(value = "Authorization", required = false) String authHeader) {
         if (!isAdmin(authHeader)) {
             return ResponseEntity.status(403).body("Access Denied.");
         }
+        // Returns only active users due to @Where annotation
         List<User> users = userRepository.findAll();
         users.forEach(u -> u.setPassword("PROTECTED")); 
         return ResponseEntity.ok(users);
     }
 
-    // --- 4. DELETE USER (Admin Only) ---
     @DeleteMapping("/users/{id}")
     public ResponseEntity<?> deleteUser(
             @PathVariable Long id, 
@@ -93,15 +90,13 @@ public class AuthController {
             return ResponseEntity.status(403).body("Access Denied.");
         }
 
+        // This triggers the @SQLDelete update statement in the Model
         userRepository.deleteById(id);
-        return ResponseEntity.ok("User deleted successfully.");
+        return ResponseEntity.ok("User account deactivated.");
     }
 
-    // --- HELPER METHOD: Check if the requester is an ADMIN ---
     private boolean isAdmin(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return false;
-        }
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) return false;
         try {
             String token = authHeader.substring(7);
             String role = jwtUtils.getRoleFromToken(token);

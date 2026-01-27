@@ -1,38 +1,38 @@
 package com.inventory.backend.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
+import lombok.*;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.ArrayList;
 
 @Entity
 @Table(name = "sales")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
 public class Sale {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private String reference; // The SLS-XXXXX number
+
     @ManyToOne
     @JoinColumn(name = "user_id")
-    private User user; // The staff who made the sale
+    private User user;
 
-    private Double totalAmount;;
-    private String status; // e.g., "PAID", "CANCELLED"
-    private Long productId;
-private Integer quantity;
-private String paymentMethod; // e.g., "CASH", "CARD"
+    // This connects one Sale to many SaleItems
+    @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<SaleItem> items = new ArrayList<>();
+
+    private Double totalAmount;
+    private String status; 
+    private String paymentMethod; 
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        this.createdAt = LocalDateTime.now();
     }
 }

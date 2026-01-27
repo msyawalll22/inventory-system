@@ -7,7 +7,7 @@ const Sidebar = ({ currentView, onViewChange, inventory = [], user, onLogout }) 
 
   const inventorySubItems = [
     { id: 'inventory', label: 'Hardware Assets', icon: '💻' },
-    { id: 'transactions', label: 'Deployment Logs', icon: '🔄' },
+    { id: 'transactions', label: 'Inventory Logs', icon: '🔄' },
     { id: 'purchases', label: 'Procurement', icon: '📑' },
     { id: 'suppliers', label: 'Vendor Portal', icon: '🤝' },
   ];
@@ -148,7 +148,7 @@ const Sidebar = ({ currentView, onViewChange, inventory = [], user, onLogout }) 
         </div>
         
         <p className="text-center text-[8px] text-slate-700 font-bold uppercase tracking-[0.4em] mt-6">
-          IT INVENTORY MANAGEMENT SYSTEM
+          POS & INVENTORY MANAGEMENT SYSTEM
         </p>
       </div>
     </aside>

@@ -26,14 +26,6 @@ const Pos = ({ products, refreshData }) => {
     }
   }, []);
 
-  const generateComplexInvoiceId = (dbId, method) => {
-    const now = new Date();
-    const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const methodTag = method === 'CASH' ? 'CSH' : 'CRD';
-    const orderNum = String(dbId || Math.floor(Math.random() * 1000)).padStart(4, '0');
-    return `INV-${datePart}-${methodTag}-${orderNum}`;
-  };
-
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -78,28 +70,29 @@ const Pos = ({ products, refreshData }) => {
     setLoading(true);
 
     try {
-      const salesPromises = cart.map(item => {
-        const queryParams = new URLSearchParams({
-          productId: item.id,
-          quantitySold: item.quantity,
-          paymentMethod: paymentMethod,
-          userId: currentUser.id 
-        });
-        const url = `http://localhost:8080/api/sales?${queryParams.toString()}`;
-        return fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: "COMPLETED" })
-        });
+      // 1. Prepare the Single Basket Payload to match Sale.java
+      const saleRequest = {
+        paymentMethod: paymentMethod,
+        status: "COMPLETED",
+        items: cart.map(item => ({
+          product: { id: item.id },
+          quantity: item.quantity
+        }))
+      };
+
+      // 2. Single POST request to the backend
+      const response = await fetch(`http://localhost:8080/api/sales?userId=${currentUser.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saleRequest)
       });
 
-      const responses = await Promise.all(salesPromises);
-      if (responses.every(res => res.ok)) {
-        const firstResult = await responses[0].json();
-        const customInvoice = generateComplexInvoiceId(firstResult.id, paymentMethod);
+      if (response.ok) {
+        const result = await response.json();
         
+        // 3. Set Receipt Data using the backend's official Reference (SLS-XXXXX)
         setLastTransaction({
-            invoice: customInvoice,
+            invoice: result.reference, 
             items: [...cart],
             total: totalAmount,
             cashier: currentUser.username,
@@ -111,10 +104,12 @@ const Pos = ({ products, refreshData }) => {
         setCart([]);
         setShowReceipt(true); 
       } else {
-        throw new Error("Server rejected request");
+        const errorText = await response.text();
+        throw new Error(errorText || "Server rejected request");
       }
     } catch (err) {
-      setUiError("⚠️ CHECKOUT FAILED: Connection Error");
+      console.error("Checkout error:", err);
+      setUiError(`⚠️ CHECKOUT FAILED: ${err.message}`);
       setTimeout(() => setUiError(''), 4000);
     } finally {
       setLoading(false);
@@ -165,8 +160,6 @@ const Pos = ({ products, refreshData }) => {
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
         <div className="p-8 border-b border-dashed border-slate-200 text-center relative">
-            
-            {/* ANIMATED SUCCESS CIRCLE */}
             <div className="relative w-20 h-20 mx-auto mb-6">
                 <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-20"></div>
                 <div className="relative w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-200 z-10 animate-success-burst">
@@ -175,7 +168,6 @@ const Pos = ({ products, refreshData }) => {
                     </svg>
                 </div>
             </div>
-
             <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Payment Successful</h2>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{data.invoice}</p>
         </div>
@@ -222,18 +214,15 @@ const Pos = ({ products, refreshData }) => {
             #thermal-receipt, #thermal-receipt * { visibility: visible; }
             #thermal-receipt { position: absolute; left: 0; right: 0; top: 5mm; margin: 0 auto; width: 80mm; display: block; }
           }
-
           @keyframes success-burst {
             0% { transform: scale(0.5); opacity: 0; }
             70% { transform: scale(1.1); }
             100% { transform: scale(1); opacity: 1; }
           }
-
           @keyframes checkmark-draw {
             0% { stroke-dasharray: 0, 100; opacity: 0; }
             100% { stroke-dasharray: 100, 100; opacity: 1; }
           }
-
           .animate-success-burst { animation: success-burst 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
           .animate-checkmark { animation: checkmark-draw 0.6s 0.3s ease-in-out forwards; stroke-dasharray: 100; }
         `}
