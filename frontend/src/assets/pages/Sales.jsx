@@ -9,7 +9,8 @@ const SalesHistory = () => {
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSale, setSelectedSale] = useState(null); 
-  
+  const [expandedDates, setExpandedDates] = useState({}); 
+
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -19,15 +20,13 @@ const SalesHistory = () => {
       const response = await fetch('http://localhost:8080/api/sales');
       if (response.ok) {
         const data = await response.json();
-        
-        // SORTING: Newest Invoice (Reference) at the top
-        const sortedData = data.sort((a, b) => {
-          const refA = a.reference || "";
-          const refB = b.reference || "";
-          return refB.localeCompare(refA);
-        });
-        
+        const sortedData = data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         setSalesHistory(sortedData);
+        
+        if(sortedData.length > 0) {
+            const firstDate = new Date(sortedData[0].createdAt).toLocaleDateString('en-GB');
+            setExpandedDates({ [firstDate]: true });
+        }
       }
     } catch (err) {
       console.error("Failed to fetch history:", err);
@@ -51,185 +50,223 @@ const SalesHistory = () => {
     return matchesSearch && matchesDate;
   });
 
+  const groupedSales = filteredSales.reduce((groups, sale) => {
+    const date = new Date(sale.createdAt).toLocaleDateString('en-GB');
+    if (!groups[date]) {
+      groups[date] = { items: [], dailyTotal: 0 };
+    }
+    groups[date].items.push(sale);
+    groups[date].dailyTotal += (sale.totalAmount || 0);
+    return groups;
+  }, {});
+
   const totalRevenue = filteredSales.reduce((acc, sale) => acc + (sale.totalAmount || 0), 0);
 
-  // Helper to count total units in a multi-item sale
+  const toggleDate = (date) => {
+    setExpandedDates(prev => ({ ...prev, [date]: !prev[date] }));
+  };
+
   const getTotalUnits = (items) => items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
 
   const exportToExcel = () => {
-    try {
-      const data = filteredSales.map(sale => ({
-        Date: new Date(sale.createdAt).toLocaleDateString('en-GB'),
-        Invoice_No: sale.reference,
-        Total_Items: getTotalUnits(sale.items),
-        Cashier: sale.user?.username || 'N/A',
-        Method: sale.paymentMethod || 'CASH',
-        Amount_RM: (sale.totalAmount || 0).toFixed(2)
-      }));
-      const worksheet = XLSX.utils.json_to_sheet(data);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Sales");
-      XLSX.writeFile(workbook, `Sales_Report_${new Date().getTime()}.xlsx`);
-    } catch (err) { console.error(err); }
+    const data = filteredSales.map(sale => ({
+      Date: new Date(sale.createdAt).toLocaleDateString('en-GB'),
+      Invoice_No: sale.reference,
+      Total_Items: getTotalUnits(sale.items),
+      Amount_RM: (sale.totalAmount || 0).toFixed(2)
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Sales");
+    XLSX.writeFile(workbook, `Sales_Report.xlsx`);
+    setShowExportOptions(false);
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF();
-    const tableColumn = ["Date", "Invoice No", "Items", "Total (RM)"];
     const tableRows = filteredSales.map(sale => [
       new Date(sale.createdAt).toLocaleDateString('en-GB'),
       sale.reference,
       getTotalUnits(sale.items),
       (sale.totalAmount || 0).toFixed(2)
     ]);
-    autoTable(doc, { head: [tableColumn], body: tableRows, theme: 'striped' });
+    autoTable(doc, { head: [["Date", "Invoice No", "Items", "Total (RM)"]], body: tableRows });
     doc.save(`Sales_Report.pdf`);
+    setShowExportOptions(false);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
       <div className="max-w-7xl mx-auto">
-        <header className="flex flex-col lg:flex-row lg:items-end justify-between mb-10 pb-8 border-b border-slate-200 gap-6">
+        
+        {/* BIG SUMMARY CARD */}
+        <div className="grid grid-cols-1 mb-10">
+          <div className="bg-slate-900 border border-slate-800 p-10 rounded-[2.5rem] shadow-2xl flex flex-col md:flex-row md:items-center justify-between relative overflow-hidden">
+            <div className="relative z-10">
+              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] mb-4 block">Archive Financial Summary</span>
+              <h2 className="text-5xl font-mono font-black text-white">
+                RM {totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </h2>
+              <p className="text-xs text-slate-400 font-bold mt-4 uppercase tracking-widest">Grand Total Revenue Generated</p>
+            </div>
+            
+            <div className="mt-8 md:mt-0 relative z-10 flex gap-4">
+               <div className="bg-white/5 border border-white/10 px-6 py-4 rounded-2xl backdrop-blur-md">
+                  <p className="text-[8px] font-black text-slate-500 uppercase">Filtered Volume</p>
+                  <p className="text-xl font-mono font-bold text-white">{filteredSales.length} Sales</p>
+               </div>
+            </div>
+
+            {/* Decorative element */}
+            <div className="absolute top-[-20%] right-[-5%] w-64 h-64 bg-indigo-600/20 rounded-full blur-[80px]"></div>
+          </div>
+        </div>
+
+        {/* HEADER & CONTROLS */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 p-6 bg-white border border-slate-200 rounded-3xl shadow-sm gap-6">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
+            <h1 className="text-xl font-black tracking-tight text-slate-800 uppercase">
               Sales <span className="text-indigo-600">Archive</span>
             </h1>
-            <p className="text-sm text-slate-500 mt-1 font-medium italic underline decoration-indigo-200">Record Sales</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Historical Financial Records</p>
           </div>
           
-          <div className="flex flex-wrap items-center gap-4">
-            <input 
-              type="text" placeholder="Search Invoice..." 
-              className="pl-4 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold w-48 shadow-sm outline-none focus:border-indigo-500"
-              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <div className="bg-white border border-slate-200 px-6 py-3 rounded-xl shadow-sm min-w-[180px]">
-                <span className="text-xl font-mono font-bold text-emerald-600">
-                  RM {totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-2 rounded-xl">
+              <input type="date" className="text-[10px] font-bold bg-transparent outline-none" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <span className="text-slate-300">→</span>
+              <input type="date" className="text-[10px] font-bold bg-transparent outline-none" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
-            <button onClick={() => setShowExportOptions(!showExportOptions)} className="px-5 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg">Generate Report</button>
-            {showExportOptions && (
-                <div className="absolute right-0 mt-40 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <button onClick={exportToPDF} className="w-full text-left px-4 py-3 text-[10px] font-bold uppercase hover:bg-slate-50 border-b">Export PDF</button>
-                    <button onClick={exportToExcel} className="w-full text-left px-4 py-3 text-[10px] font-bold uppercase hover:bg-slate-50">Export Excel</button>
-                </div>
-            )}
+
+            <div className="relative">
+              <input 
+                type="text" placeholder="Search Invoice..." 
+                className="pl-9 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold w-44 shadow-sm outline-none focus:bg-white focus:border-indigo-500 transition-all"
+                value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <span className="absolute left-3 top-3.5 text-xs opacity-40">🔍</span>
+            </div>
+
+            <div className="relative">
+                <button onClick={() => setShowExportOptions(!showExportOptions)} className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all active:scale-95 shadow-lg shadow-indigo-100">
+                    Export Data
+                </button>
+                {showExportOptions && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in duration-150">
+                        <button onClick={exportToPDF} className="w-full text-left px-5 py-4 text-[10px] font-bold uppercase text-slate-600 hover:bg-slate-50 border-b flex justify-between items-center">PDF Report <span>📄</span></button>
+                        <button onClick={exportToExcel} className="w-full text-left px-5 py-4 text-[10px] font-bold uppercase text-slate-600 hover:bg-slate-50 flex justify-between items-center">Excel Sheet <span>📊</span></button>
+                    </div>
+                )}
+            </div>
           </div>
         </header>
 
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-200">
-                <th className="px-8 py-4">Date</th>
-                <th className="px-8 py-4">Invoice No</th>
-                <th className="px-8 py-4 text-center">Items Count</th>
-                <th className="px-8 py-4 text-right">Total Amount</th>
-                <th className="px-8 py-4 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr><td colSpan="5" className="px-8 py-20 text-center font-bold text-slate-400 uppercase tracking-widest">Loading Records...</td></tr>
-              ) : (
-                filteredSales.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-slate-50/30 transition-colors">
-                    <td className="px-8 py-5 text-sm font-bold text-slate-700">
-                      {new Date(sale.createdAt).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="px-8 py-5 font-mono text-xs font-bold text-indigo-600">
-                      {sale.reference}
-                    </td>
-                    <td className="px-8 py-5 text-center font-bold text-slate-700">
-                        {getTotalUnits(sale.items)} items
-                    </td>
-                    <td className="px-8 py-5 text-right font-mono font-black text-slate-800">
-                      RM {(sale.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-8 py-5 text-center">
-                      <button 
-                        onClick={() => setSelectedSale(sale)}
-                        className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-bold uppercase hover:bg-indigo-600 hover:text-white transition-all border border-slate-200"
-                      >
-                        View Receipt
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+           <div className="text-center py-20 font-black text-slate-300 animate-pulse tracking-[0.2em]">SYNCHRONIZING ARCHIVES...</div>
+        ) : (
+          <div className="space-y-4">
+            {Object.keys(groupedSales).length === 0 && (
+                <div className="text-center py-20 bg-white rounded-[2rem] border border-dashed border-slate-200 text-slate-300 font-bold uppercase tracking-widest">No matching records found</div>
+            )}
+            
+            {Object.entries(groupedSales).map(([date, data]) => (
+              <div key={date} className="bg-white border border-slate-200 rounded-[1.5rem] overflow-hidden shadow-sm hover:border-slate-300 transition-all">
+                {/* DATE HEADER */}
+                <div 
+                    onClick={() => toggleDate(date)}
+                    className="flex items-center justify-between px-8 py-6 bg-slate-50/50 cursor-pointer hover:bg-slate-50 transition-colors group"
+                >
+                    <div className="flex items-center gap-5">
+                        <div className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-[10px] transition-all ${expandedDates[date] ? 'bg-slate-900 text-white border-slate-900 rotate-90' : 'group-hover:bg-white'}`}>▶</div>
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800 tracking-tight">{date}</h3>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{data.items.length} Transactions</p>
+                        </div>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total Daily Revenue</p>
+                        <p className="text-sm font-mono font-bold text-emerald-600">RM {data.dailyTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    </div>
+                </div>
+
+                {/* DROPDOWN TABLE */}
+                {expandedDates[date] && (
+                  <div className="overflow-x-auto border-t border-slate-100 animate-in slide-in-from-top-2 duration-300">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50/30">
+                        <tr className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                          <th className="px-8 py-4">Invoice No</th>
+                          <th className="px-8 py-4">Payment Method</th>
+                          <th className="px-8 py-4 text-center">Items</th>
+                          <th className="px-8 py-4 text-right">Amount (RM)</th>
+                          <th className="px-8 py-4 text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {data.items.map((sale) => (
+                          <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
+                            <td className="px-8 py-5 font-mono text-xs font-bold text-indigo-600 group-hover:scale-105 transition-transform origin-left">{sale.reference}</td>
+                            <td className="px-8 py-5">
+                              <span className="px-3 py-1 bg-slate-100 text-slate-500 rounded-full text-[9px] font-black uppercase">
+                                {sale.paymentMethod || 'CASH'}
+                              </span>
+                            </td>
+                            <td className="px-8 py-5 text-center text-xs font-bold text-slate-600">{getTotalUnits(sale.items)}</td>
+                            <td className="px-8 py-5 text-right font-mono font-bold text-slate-900">
+                                {sale.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-8 py-5 text-center">
+                              <button 
+                                onClick={() => setSelectedSale(sale)}
+                                className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[9px] font-black uppercase hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all shadow-sm"
+                              >
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* MULTI-ITEM RECEIPT MODAL */}
+      {/* RECEIPT MODAL */}
       {selectedSale && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-8">
-                <div className="text-center border-b-2 border-dashed border-slate-200 pb-6 mb-6">
-                    <h2 className="text-xl font-black tracking-tighter text-slate-800 uppercase">Official Receipt</h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                        Ref: {selectedSale.reference}
-                    </p>
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-10">
+                <div className="text-center border-b-2 border-dashed border-slate-100 pb-8 mb-8">
+                    <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Sale Summary</h2>
+                    <p className="text-[10px] font-bold text-indigo-500 uppercase mt-2 tracking-widest">Ref ID: {selectedSale.reference}</p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-4 text-[11px]">
-                    <div>
-                        <p className="font-bold text-slate-400 uppercase">Date</p>
-                        <p className="font-mono font-bold text-slate-700">{new Date(selectedSale.createdAt).toLocaleString('en-GB')}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="font-bold text-slate-400 uppercase">Cashier</p>
-                        <p className="font-bold text-slate-700 uppercase">{selectedSale.user?.username || 'N/A'}</p>
-                    </div>
+                <div className="space-y-5 mb-10 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                    {selectedSale.items?.map((item, idx) => (
+                        <div key={idx} className="flex justify-between items-center">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{item.product?.name}</span>
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">Qty: {item.quantity}</span>
+                            </div>
+                            <span className="font-mono font-bold text-xs">RM {(item.unitPrice * item.quantity).toFixed(2)}</span>
+                        </div>
+                    ))}
                 </div>
 
-                {/* ITEMS LIST TABLE */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden mb-6">
-                    <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-100/50">
-                            <tr className="text-[9px] font-bold uppercase text-slate-400 border-b border-slate-200">
-                                <th className="px-4 py-2">Item</th>
-                                <th className="px-4 py-2 text-center">Qty</th>
-                                <th className="px-4 py-2 text-right">Price</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                            {selectedSale.items?.map((item, idx) => (
-                                <tr key={idx} className="text-[11px]">
-                                    <td className="px-4 py-3 font-bold text-slate-700 uppercase">
-                                        {item.product?.name || "Unknown Product"}
-                                    </td>
-                                    <td className="px-4 py-3 text-center font-mono font-bold text-slate-500">
-                                        x{item.quantity}
-                                    </td>
-                                    <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">
-                                        {(item.unitPrice * item.quantity).toFixed(2)}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="flex justify-between items-center mb-8 px-2">
-                    <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Method</p>
-                        <p className="text-xs font-black text-slate-700 uppercase">{selectedSale.paymentMethod || 'CASH'}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Total Amount</p>
-                        <p className="text-2xl font-mono font-black text-indigo-600">RM {selectedSale.totalAmount?.toFixed(2)}</p>
-                    </div>
+                <div className="bg-slate-50 p-6 rounded-2xl flex justify-between items-center mb-10 border border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Grand Total</span>
+                    <span className="text-2xl font-mono font-black text-indigo-600">RM {selectedSale.totalAmount?.toFixed(2)}</span>
                 </div>
 
                 <button 
                   onClick={() => setSelectedSale(null)}
-                  className="w-full py-4 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase tracking-[0.2em] hover:bg-indigo-600 transition-all shadow-lg"
+                  className="w-full py-5 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200"
                 >
-                  Close Receipt
+                  Dismiss Archive
                 </button>
             </div>
           </div>
