@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 const Pos = ({ products, refreshData }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [cart, setCart] = useState([]); 
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [loading, setLoading] = useState(false);
@@ -10,6 +11,33 @@ const Pos = ({ products, refreshData }) => {
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastTransaction, setLastTransaction] = useState(null);
   const [uiError, setUiError] = useState('');
+
+  // 1. EXTRACT UNIQUE CATEGORIES FOR THE TOP BAR
+  const categories = useMemo(() => {
+    const unique = [...new Set(products.map(p => p.category))].filter(Boolean);
+    return ['ALL', ...unique];
+  }, [products]);
+
+  // 2. GROUP PRODUCTS BY CATEGORY FOR SECTIONED DISPLAY
+  const groupedProducts = useMemo(() => {
+    // Apply search filter first
+    const searchFiltered = products.filter(p => 
+      p.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Apply category filter
+    const finalFiltered = selectedCategory === 'ALL' 
+      ? searchFiltered 
+      : searchFiltered.filter(p => p.category === selectedCategory);
+
+    // Group items by their category name
+    return finalFiltered.reduce((acc, product) => {
+      const cat = product.category || 'OTHERS';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(product);
+      return acc;
+    }, {});
+  }, [products, searchTerm, selectedCategory]);
 
   useEffect(() => {
     try {
@@ -25,10 +53,6 @@ const Pos = ({ products, refreshData }) => {
       console.error("User session error:", err);
     }
   }, []);
-
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const addToCart = (product) => {
     const existingItem = cart.find(item => item.id === product.id);
@@ -64,13 +88,12 @@ const Pos = ({ products, refreshData }) => {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!currentUser.id) {
-        setUiError("⚠️ SESSION EXPIRED: Please log in again.");
+        setUiError("⚠️ SESSION EXPIRED");
         return;
     }
     setLoading(true);
 
     try {
-      // 1. Prepare the Single Basket Payload to match Sale.java
       const saleRequest = {
         paymentMethod: paymentMethod,
         status: "COMPLETED",
@@ -80,7 +103,6 @@ const Pos = ({ products, refreshData }) => {
         }))
       };
 
-      // 2. Single POST request to the backend
       const response = await fetch(`http://localhost:8080/api/sales?userId=${currentUser.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -89,8 +111,6 @@ const Pos = ({ products, refreshData }) => {
 
       if (response.ok) {
         const result = await response.json();
-        
-        // 3. Set Receipt Data using the backend's official Reference (SLS-XXXXX)
         setLastTransaction({
             invoice: result.reference, 
             items: [...cart],
@@ -99,17 +119,15 @@ const Pos = ({ products, refreshData }) => {
             date: new Date().toLocaleString(),
             method: paymentMethod
         });
-
         await refreshData();
         setCart([]);
         setShowReceipt(true); 
       } else {
         const errorText = await response.text();
-        throw new Error(errorText || "Server rejected request");
+        throw new Error(errorText || "Server error");
       }
     } catch (err) {
-      console.error("Checkout error:", err);
-      setUiError(`⚠️ CHECKOUT FAILED: ${err.message}`);
+      setUiError(`⚠️ FAILED: ${err.message}`);
       setTimeout(() => setUiError(''), 4000);
     } finally {
       setLoading(false);
@@ -229,10 +247,7 @@ const Pos = ({ products, refreshData }) => {
       </style>
 
       {lastTransaction && <PrintableReceipt data={lastTransaction} />}
-      {uiError && (
-        <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold text-xs animate-bounce uppercase tracking-widest">{uiError}</div>
-      )}
-
+      {uiError && <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold text-xs animate-bounce uppercase tracking-widest">{uiError}</div>}
       {showReceipt && <ReceiptModal data={lastTransaction} onClose={() => setShowReceipt(false)} />}
 
       <header className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-slate-200 pb-6 bg-white p-6 rounded-xl shadow-sm no-print">
@@ -251,26 +266,64 @@ const Pos = ({ products, refreshData }) => {
         </div>
       </header>
 
+      {/* CATEGORY BAR */}
+      <div className="flex gap-2 overflow-x-auto pb-2 no-print custom-scrollbar">
+        {categories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`px-6 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border whitespace-nowrap ${
+              selectedCategory === cat 
+                ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100' 
+                : 'bg-white border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-500'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-12 gap-8 flex-1 overflow-hidden no-print">
         <div className="col-span-12 lg:col-span-8 overflow-y-auto pr-2 custom-scrollbar pb-10">
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredProducts.map(p => (
-              <button key={p.id} onClick={() => addToCart(p)} disabled={p.quantity <= 0} className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:border-indigo-500 hover:shadow-2xl hover:-translate-y-1 flex flex-col h-[300px] text-left disabled:opacity-40 relative">
-                <div className="h-36 w-full bg-slate-100 flex items-center justify-center overflow-hidden">
-                  {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.name} /> : <span className="text-[10px] font-bold text-slate-300 uppercase">No Preview</span>}
+          
+          {/* CATEGORY SECTION LOOP */}
+          {Object.keys(groupedProducts).length > 0 ? (
+            Object.entries(groupedProducts).map(([categoryName, items]) => (
+              <div key={categoryName} className="mb-12">
+                <div className="mb-6 flex items-center gap-4">
+                  <h2 className="text-[11px] font-black text-indigo-600 uppercase tracking-[0.2em]">{categoryName}</h2>
+                  <div className="h-[1px] flex-1 bg-slate-200"></div>
                 </div>
-                <div className="p-4 flex flex-col justify-between flex-1">
-                  <h3 className="font-bold text-slate-800 text-[11px] uppercase line-clamp-2 leading-tight tracking-tight">{p.name}</h3>
-                  <div>
-                    <p className="text-lg font-mono font-black text-slate-900">RM {(p.promoPrice || p.price).toFixed(2)}</p>
-                    <p className={`text-[9px] font-black uppercase mt-1 px-2 py-1 inline-block rounded ${p.quantity < 5 ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>QTY: {p.quantity}</p>
-                  </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {items.map(p => (
+                    <button key={p.id} onClick={() => addToCart(p)} disabled={p.quantity <= 0} className="group bg-white rounded-xl border border-slate-200 overflow-hidden transition-all hover:border-indigo-500 hover:shadow-2xl hover:-translate-y-1 flex flex-col h-[300px] text-left disabled:opacity-40 relative">
+                      <div className="h-36 w-full bg-slate-100 flex items-center justify-center overflow-hidden">
+                        {p.imageUrl ? <img src={p.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={p.name} /> : <span className="text-[10px] font-bold text-slate-300 uppercase">No Preview</span>}
+                      </div>
+                      <div className="p-4 flex flex-col justify-between flex-1">
+                        <div>
+                          <h3 className="font-bold text-slate-800 text-[11px] uppercase line-clamp-2 leading-tight tracking-tight">{p.name}</h3>
+                        </div>
+                        <div>
+                          <p className="text-lg font-mono font-black text-slate-900">RM {(p.promoPrice || p.price).toFixed(2)}</p>
+                          <p className={`text-[9px] font-black uppercase mt-1 px-2 py-1 inline-block rounded ${p.quantity < 5 ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-400'}`}>QTY: {p.quantity}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              </button>
-            ))}
-          </div>
+              </div>
+            ))
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center opacity-20">
+              <span className="text-6xl mb-4">🔍</span>
+              <p className="font-black uppercase tracking-widest text-xs">No products found</p>
+            </div>
+          )}
         </div>
 
+        {/* RIGHT SIDE CART */}
         <div className="col-span-12 lg:col-span-4 bg-white rounded-2xl border border-slate-200 flex flex-col shadow-xl overflow-hidden h-full relative">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
             <h2 className="font-black text-slate-800 text-[10px] uppercase tracking-[0.2em]">Current Order</h2>
