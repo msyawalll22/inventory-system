@@ -81,6 +81,35 @@ public class AuthController {
         return ResponseEntity.ok(users);
     }
 
+    /**
+     * UPDATE USER (CRUD: U)
+     * Handles PUT requests to /api/auth/users/{id}
+     */
+    @PutMapping("/users/{id}")
+    public ResponseEntity<?> updateUser(
+            @PathVariable Long id,
+            @RequestBody User userDetails,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+
+        if (!isAdmin(authHeader)) {
+            return ResponseEntity.status(403).body("Access Denied.");
+        }
+
+        return userRepository.findById(id).map(user -> {
+            user.setUsername(userDetails.getUsername());
+            user.setRole(userDetails.getRole());
+
+            // Only update password if a new one is provided and it's not the "PROTECTED" placeholder
+            if (userDetails.getPassword() != null && !userDetails.getPassword().isEmpty() 
+                && !userDetails.getPassword().equals("PROTECTED")) {
+                user.setPassword(passwordEncoder.encode(userDetails.getPassword()));
+            }
+
+            userRepository.save(user);
+            return ResponseEntity.ok("User updated successfully!");
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
     @DeleteMapping("/users/{id}")
     public ResponseEntity<?> deleteUser(
             @PathVariable Long id, 
