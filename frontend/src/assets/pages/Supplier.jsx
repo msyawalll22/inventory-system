@@ -170,7 +170,7 @@ const Suppliers = () => {
                 <th className="px-8 py-5">Corporate Identity</th>
                 <th className="px-8 py-5">Contact Gateway</th>
                 <th className="px-8 py-5">Official Address</th>
-                <th className="px-8 py-5 text-right">Security</th>
+                <th className="px-8 py-5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">

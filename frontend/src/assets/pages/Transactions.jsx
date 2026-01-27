@@ -128,7 +128,7 @@ const Transactions = () => {
               <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
                 Inventory <span className="text-indigo-600">Logs</span>
               </h1>
-              <p className="text-sm text-slate-500 mt-1">Movement tracking & security oversight.</p>
+               <p className="text-sm text-slate-500 mt-1 font-medium">Movement Stock Tracking.</p>
             </div>
 
             {/* Filters Container */}

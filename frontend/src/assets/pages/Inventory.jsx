@@ -138,7 +138,7 @@ const Inventory = ({ inventory, loading, refreshData }) => {
         <header className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6 border-b border-slate-200 pb-8">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">Asset <span className="text-indigo-600 italic">Inventory</span></h1>
-            <p className="text-sm text-slate-500 mt-1 font-medium">Global hardware repository and stock management system.</p>
+            <p className="text-sm text-slate-500 mt-1 font-medium">Hardware repository and stock management system.</p>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">

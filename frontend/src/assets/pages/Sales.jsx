@@ -94,7 +94,7 @@ const SalesHistory = () => {
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
               Sales <span className="text-indigo-600">Archive</span>
             </h1>
-            <p className="text-sm text-slate-500 mt-1 font-medium italic underline decoration-indigo-200">Grouped by Checkout Session.</p>
+            <p className="text-sm text-slate-500 mt-1 font-medium italic underline decoration-indigo-200">Record Sales</p>
           </div>
           
           <div className="flex flex-wrap items-center gap-4">

@@ -231,7 +231,7 @@ const Purchases = ({ products = [], refreshData }) => {
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 uppercase">
               Inventory <span className="text-indigo-600 italic">Procurement</span>
             </h1>
-            <p className="text-sm text-slate-500 mt-1 font-medium">Log incoming assets and manage supplier transactions.</p>
+            <p className="text-sm text-slate-500 mt-1 font-medium">Add assets and manage supplier transactions.</p>
           </div>
           
           <div className="mt-6 md:mt-0 flex bg-slate-200 p-1 rounded-xl w-fit">
